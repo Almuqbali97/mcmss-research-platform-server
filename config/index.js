@@ -25,7 +25,7 @@ export const config = {
   app: {
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
     appName: process.env.APP_NAME || 'Research and Studies Committee',
-    logoUrl: process.env.EMAIL_LOGO_URL || null,
+    logoUrl: process.env.EMAIL_LOGO_URL || 'https://mcmss-client.onrender.com/assets/logo-DVgwY-qi.png',
   },
   otp: {
     expiresInMinutes: parseInt(process.env.OTP_EXPIRES_IN_MINUTES, 10) || 15,
