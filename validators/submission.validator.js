@@ -3,7 +3,9 @@ import Joi from 'joi';
 export const createSubmissionSchema = Joi.object({
   researchTitle: Joi.string().trim().required(),
   principalInvestigator: Joi.string().trim().required(),
+  formData: Joi.object().unknown(true),
   data: Joi.object().unknown(true),
+  status: Joi.string().valid('draft', 'under_review').optional(),
   sections: Joi.object({
     section1: Joi.boolean(),
     section2: Joi.boolean(),
@@ -18,7 +20,9 @@ export const createSubmissionSchema = Joi.object({
 export const updateSubmissionSchema = Joi.object({
   researchTitle: Joi.string().trim(),
   principalInvestigator: Joi.string().trim(),
+  formData: Joi.object().unknown(true),
   data: Joi.object().unknown(true),
+  status: Joi.string().valid('draft').optional(),
   sections: Joi.object({
     section1: Joi.boolean(),
     section2: Joi.boolean(),
