@@ -12,6 +12,7 @@ export const config = {
   },
   mongodb: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/medical-research-platform',
+    dbName: process.env.DB_NAME || 'medical-research-platform',
   },
   email: {
     host: process.env.SMTP_HOST || 'smtp.gmail.com',

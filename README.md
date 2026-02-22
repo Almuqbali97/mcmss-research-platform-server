@@ -41,6 +41,7 @@ server/
    ```
    Edit `.env` and set:
    - `MONGODB_URI` - MongoDB connection string
+   - `DB_NAME` - Database name (default: medical-research-platform)
    - `JWT_SECRET` - Strong secret for JWT signing
    - `SMTP_*` - SMTP credentials for Nodemailer (Gmail, SendGrid, etc.)
 
