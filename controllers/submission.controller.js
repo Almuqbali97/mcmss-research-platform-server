@@ -2,7 +2,11 @@ import Submission from '../models/Submission.model.js';
 import Reviewer from '../models/Reviewer.model.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
 import { generateSubmissionId } from '../utils/generateSubmissionId.js';
-import { sendReviewAssignedEmail, sendSubmissionStatusEmail } from '../services/email.service.js';
+import {
+  sendReviewAssignedEmail,
+  sendSubmissionStatusEmail,
+  sendSubmissionAcknowledgmentEmail,
+} from '../services/email.service.js';
 
 export const getSubmissions = async (req, res, next) => {
   try {
@@ -144,6 +148,21 @@ export const submitForReview = async (req, res, next) => {
     submission.submittedDate = new Date();
     submission.reviewStatus = 'pending';
     await submission.save();
+
+    if (submission.submittedBy?.email) {
+      try {
+        const piEmail = submission.formData?.principalInvestigator?.email;
+        await sendSubmissionAcknowledgmentEmail(
+          submission.submittedBy.email,
+          submission.submittedBy.name,
+          submission.researchTitle,
+          submission.submittedDate,
+          piEmail
+        );
+      } catch (emailErr) {
+        console.error('Submission acknowledgment email failed:', emailErr.message);
+      }
+    }
 
     const updated = await Submission.findById(id)
       .populate('submittedBy', 'firstName lastName email')

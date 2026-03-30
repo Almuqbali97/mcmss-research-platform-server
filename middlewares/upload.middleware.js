@@ -40,6 +40,7 @@ export const submissionUpload = multer({
   { name: 'informationSheetFiles', maxCount: 5 },
   { name: 'consentFormFiles', maxCount: 5 },
   { name: 'grantDocuments', maxCount: 5 },
+  { name: 'ethicsApprovalDocuments', maxCount: 5 },
   { name: 'sampleSizeFiles', maxCount: 5 },
   { name: 'dataVariablesFiles', maxCount: 5 },
   { name: 'researchProposalFiles', maxCount: 5 },

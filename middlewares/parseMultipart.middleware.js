@@ -13,6 +13,7 @@ export const parseMultipartSubmission = (req, res, next) => {
       'informationSheetFiles',
       'consentFormFiles',
       'grantDocuments',
+      'ethicsApprovalDocuments',
       'sampleSizeFiles',
       'dataVariablesFiles',
       'researchProposalFiles',

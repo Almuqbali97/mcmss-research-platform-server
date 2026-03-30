@@ -71,10 +71,26 @@ const getTransporter = () => {
   return transporter;
 };
 
-const sendEmail = async ({ to, subject, html, text }) => {
+const escapeHtml = (s) =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+const formatSubmissionReceivedDate = (d) => {
+  const date = d instanceof Date ? d : new Date(d);
+  return date.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'numeric',
+    year: 'numeric',
+  });
+};
+
+const sendEmail = async ({ to, cc, subject, html, text }) => {
   const transport = getTransporter();
   if (!transport) {
-    console.log('Email (not sent - no SMTP config):', { to, subject });
+    console.log('Email (not sent - no SMTP config):', { to, cc, subject });
     return { sent: false, messageId: null };
   }
 
@@ -82,6 +98,7 @@ const sendEmail = async ({ to, subject, html, text }) => {
     const info = await transport.sendMail({
       from: `"${BRANDING.appName}" <${config.email.from}>`,
       to,
+      ...(cc ? { cc } : {}),
       subject,
       html: html || text,
       text: text || (html ? html.replace(/<[^>]*>/g, '') : ''),
@@ -163,6 +180,21 @@ const templates = {
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
     `,
   }),
+  submissionAcknowledgment: (recipientName, title, receivedDateStr) => {
+    const safeTitle = escapeHtml(title);
+    return {
+      subject: 'Acknowledgment of Proposal Submission',
+      content: `
+      <p style="margin: 0 0 16px;">Good day ${escapeHtml(recipientName)},</p>
+      <p style="margin: 0 0 16px;">This is to confirm that your research proposal entitled &ldquo;<strong>${safeTitle}</strong>&rdquo; was received by the Ethics Committee at the Medical City for Military and Security Services (MCMSS) on <strong>${escapeHtml(receivedDateStr)}</strong>.</p>
+      <p style="margin: 0 0 16px;">Your submission will undergo formal review by the Committee.</p>
+      <p style="margin: 0 0 16px;">You will be notified of the outcome by email within 5 weeks of the submission date.</p>
+      <p style="margin: 0 0 16px;">Kindly refrain from contacting the Ethics Committee (via phone, email, or text) regarding the proposal status before the 5-week review period has elapsed, as all updates will be communicated once the review is complete.</p>
+      <p style="margin: 0 0 16px;">If additional information is required during the review process, the Committee will contact you directly.</p>
+      <p style="margin: 24px 0 0;">Best regards,<br/><strong>Research Ethics Committee</strong><br/>Medical City for Military and Security Services<br/>Muscat, Oman</p>
+    `,
+    };
+  },
 };
 
 export const sendSignupOTPEmail = async (email, name, otp, expiresMinutes = 15) => {
@@ -199,4 +231,38 @@ export const sendReviewAssignedEmail = async (reviewerEmail, reviewerName, submi
 export const sendSubmissionStatusEmail = async (email, name, submissionTitle, status) => {
   const { subject, content } = templates.submissionStatusUpdate(name, submissionTitle, status, BRANDING.appName);
   return sendEmail({ to: email, subject, html: getEmailLayout(content) });
+};
+
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
+
+/**
+ * Notifies the submitter and CCs the Principal Investigator (when a distinct valid email is on file).
+ */
+export const sendSubmissionAcknowledgmentEmail = async (
+  submitterEmail,
+  submitterName,
+  researchTitle,
+  submittedAt,
+  piEmailRaw
+) => {
+  if (!submitterEmail) {
+    return { sent: false, messageId: null };
+  }
+  const receivedDateStr = formatSubmissionReceivedDate(submittedAt);
+  const { subject, content } = templates.submissionAcknowledgment(
+    submitterName || 'Researcher',
+    researchTitle || 'your proposal',
+    receivedDateStr
+  );
+  const piEmail = typeof piEmailRaw === 'string' ? piEmailRaw.trim().toLowerCase() : '';
+  const submitterLower = submitterEmail.trim().toLowerCase();
+  const cc =
+    piEmail && EMAIL_RE.test(piEmail) && piEmail !== submitterLower ? piEmail : undefined;
+
+  return sendEmail({
+    to: submitterEmail,
+    cc,
+    subject,
+    html: getEmailLayout(content),
+  });
 };
