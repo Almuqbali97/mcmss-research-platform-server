@@ -28,7 +28,7 @@ app.get('/api', (req, res) => {
   res.json({
     success: true,
     message: 'Medical Research Platform API',
-    endpoints: { auth: '/api/auth', submissions: '/api/submissions', reviewers: '/api/reviewers' },
+    endpoints: { auth: '/api/auth', submissions: '/api/submissions', publicationFunding: '/api/publication-funding', reviewers: '/api/reviewers' },
   });
 });
 

@@ -6,7 +6,11 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "seed": "node scripts/seed.js",
+    "seed:researcher": "node scripts/seed.js researcher",
+    "seed:reviewer": "node scripts/seed.js reviewer",
+    "seed:admin": "node scripts/seed.js admin"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

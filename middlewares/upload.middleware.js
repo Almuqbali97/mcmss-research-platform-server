@@ -45,3 +45,28 @@ export const submissionUpload = multer({
   { name: 'dataVariablesFiles', maxCount: 5 },
   { name: 'researchProposalFiles', maxCount: 5 },
 ]);
+
+const publicationFundingFileFilter = (req, file, cb) => {
+  const allowed = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (allowed.includes(ext)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only PDF, DOC, DOCX, JPG, and PNG files are allowed.'), false);
+  }
+};
+
+export const publicationFundingUpload = multer({
+  storage,
+  fileFilter: publicationFundingFileFilter,
+  limits: { fileSize: 100 * 1024 * 1024 },
+}).fields([
+  { name: 'frontPageOrArticleFiles', maxCount: 5 },
+  { name: 'proofOfPaymentFiles', maxCount: 5 },
+  { name: 'acceptanceLetterFiles', maxCount: 5 },
+  { name: 'publishedArticleFiles', maxCount: 5 },
+  { name: 'invoiceReceiptFiles', maxCount: 5 },
+  { name: 'irbApprovalFiles', maxCount: 5 },
+  { name: 'copeDoajProofFiles', maxCount: 5 },
+  { name: 'additionalSupportingFiles', maxCount: 10 },
+]);
