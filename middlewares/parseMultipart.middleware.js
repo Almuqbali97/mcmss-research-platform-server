@@ -17,6 +17,7 @@ export const parseMultipartSubmission = (req, res, next) => {
       'sampleSizeFiles',
       'dataVariablesFiles',
       'researchProposalFiles',
+      'bloodTissueAbroadDocuments',
     ];
 
     for (const field of fileFields) {

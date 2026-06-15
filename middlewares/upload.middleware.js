@@ -44,6 +44,7 @@ export const submissionUpload = multer({
   { name: 'sampleSizeFiles', maxCount: 5 },
   { name: 'dataVariablesFiles', maxCount: 5 },
   { name: 'researchProposalFiles', maxCount: 5 },
+  { name: 'bloodTissueAbroadDocuments', maxCount: 5 },
 ]);
 
 const publicationFundingFileFilter = (req, file, cb) => {

@@ -34,8 +34,6 @@ app.get('/api', (req, res) => {
 
 app.use('/api', routes);
 
-app.use(routes);
-
 app.use(notFound);
 app.use(globalErrorHandler);
 

@@ -8,6 +8,28 @@ import {
   sendSubmissionAcknowledgmentEmail,
 } from '../services/email.service.js';
 
+const RESEARCHER_EDITABLE_STATUSES = ['draft', 'revisions_required'];
+const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', 'revisions_required'];
+
+const isAssignedReviewer = (assignedReviewerId, reviewerId) => {
+  if (!assignedReviewerId || !reviewerId) return false;
+  const assignedId = assignedReviewerId._id || assignedReviewerId;
+  return assignedId.equals(reviewerId);
+};
+
+const canAccessApplication = async (application, user) => {
+  if (user.role === 'admin') return true;
+  if (user.role === 'researcher') {
+    return application.submittedBy?._id?.equals(user._id) || application.submittedBy?.equals?.(user._id);
+  }
+  if (user.role === 'reviewer') {
+    const reviewer = await Reviewer.findOne({ userId: user._id });
+    if (!reviewer) return false;
+    return isAssignedReviewer(application.assignedReviewerId, reviewer._id);
+  }
+  return false;
+};
+
 const populateOptions = [
   { path: 'submittedBy', select: 'firstName lastName email' },
   { path: 'assignedReviewerId', select: 'name email specialization' },
@@ -107,8 +129,8 @@ export const updatePublicationFundingApplication = async (req, res, next) => {
       if (!application.submittedBy.equals(user._id)) {
         return errorResponse(res, 'Access denied.', 403);
       }
-      if (application.status !== 'draft') {
-        return errorResponse(res, 'Only draft applications can be edited.', 400);
+      if (!RESEARCHER_EDITABLE_STATUSES.includes(application.status)) {
+        return errorResponse(res, 'Only draft or revision-required applications can be edited.', 400);
       }
     } else if (user.role !== 'admin') {
       return errorResponse(res, 'Access denied.', 403);
@@ -137,13 +159,16 @@ export const submitPublicationFundingForReview = async (req, res, next) => {
       return errorResponse(res, 'Access denied.', 403);
     }
 
-    if (application.status !== 'draft') {
-      return errorResponse(res, 'Only draft applications can be submitted for review.', 400);
+    if (!RESEARCHER_SUBMITTABLE_STATUSES.includes(application.status)) {
+      return errorResponse(res, 'Only draft or revision-required applications can be submitted for review.', 400);
     }
 
     application.status = 'under_review';
     application.submittedDate = new Date();
     application.reviewStatus = 'pending';
+    if (application.reviewComments) {
+      application.reviewComments = '';
+    }
     await application.save();
 
     if (application.submittedBy?.email) {
@@ -178,12 +203,17 @@ export const assignPublicationFundingReviewer = async (req, res, next) => {
 
     const reviewer = await Reviewer.findById(reviewerId);
     if (!reviewer) return errorResponse(res, 'Reviewer not found.', 404);
+    if (!reviewer.isActive) return errorResponse(res, 'This reviewer is inactive.', 400);
 
     application.assignedReviewer = reviewer.name;
     application.assignedReviewerId = reviewer._id;
     await application.save();
 
-    await sendReviewAssignedEmail(reviewer.email, reviewer.name, application.manuscriptTitle);
+    try {
+      await sendReviewAssignedEmail(reviewer.email, reviewer.name, application.manuscriptTitle);
+    } catch (emailErr) {
+      console.error('Publication funding review assignment email failed:', emailErr.message);
+    }
 
     const updated = await PublicationFunding.findById(id).populate(populateOptions);
 
@@ -199,13 +229,15 @@ export const submitPublicationFundingReview = async (req, res, next) => {
     const { status, comments } = req.body;
     const user = req.user;
 
-    const application = await PublicationFunding.findById(id).populate('submittedBy', 'firstName lastName email');
+    const application = await PublicationFunding.findById(id)
+      .populate('submittedBy', 'firstName lastName email')
+      .populate('assignedReviewerId', 'name email specialization');
     if (!application) return errorResponse(res, 'Application not found.', 404);
 
     const reviewer = await Reviewer.findOne({ userId: user._id });
-    const isAssignedReviewer = reviewer && application.assignedReviewerId?._id?.equals(reviewer._id);
+    const isAssigned = isAssignedReviewer(application.assignedReviewerId, reviewer?._id);
     const isAdmin = user.role === 'admin';
-    if (!isAssignedReviewer && !isAdmin) {
+    if (!isAssigned && !isAdmin) {
       return errorResponse(res, 'You are not assigned to review this application.', 403);
     }
 
@@ -215,12 +247,16 @@ export const submitPublicationFundingReview = async (req, res, next) => {
     await application.save();
 
     if (application.submittedBy?.email) {
-      await sendSubmissionStatusEmail(
-        application.submittedBy.email,
-        `${application.submittedBy.firstName} ${application.submittedBy.lastName}`.trim(),
-        application.manuscriptTitle,
-        application.status
-      );
+      try {
+        await sendSubmissionStatusEmail(
+          application.submittedBy.email,
+          `${application.submittedBy.firstName} ${application.submittedBy.lastName}`.trim(),
+          application.manuscriptTitle,
+          application.status
+        );
+      } catch (emailErr) {
+        console.error('Publication funding status email failed:', emailErr.message);
+      }
     }
 
     const updated = await PublicationFunding.findById(id).populate(populateOptions);
@@ -253,10 +289,16 @@ export const updateCommitteeReview = async (req, res, next) => {
 export const exportPublicationFundingApplication = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const user = req.user;
 
     const application = await PublicationFunding.findById(id).populate(populateOptions);
 
     if (!application) return errorResponse(res, 'Application not found.', 404);
+
+    const hasAccess = await canAccessApplication(application, user);
+    if (!hasAccess) {
+      return errorResponse(res, 'Access denied.', 403);
+    }
 
     return successResponse(res, {
       application: application.toObject ? application.toObject() : application,

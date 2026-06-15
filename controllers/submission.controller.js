@@ -8,6 +8,28 @@ import {
   sendSubmissionAcknowledgmentEmail,
 } from '../services/email.service.js';
 
+const RESEARCHER_EDITABLE_STATUSES = ['draft', 'revisions_required'];
+const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', 'revisions_required'];
+
+const isAssignedReviewer = (assignedReviewerId, reviewerId) => {
+  if (!assignedReviewerId || !reviewerId) return false;
+  const assignedId = assignedReviewerId._id || assignedReviewerId;
+  return assignedId.equals(reviewerId);
+};
+
+const canAccessSubmission = async (submission, user) => {
+  if (user.role === 'admin') return true;
+  if (user.role === 'researcher') {
+    return submission.submittedBy?._id?.equals(user._id) || submission.submittedBy?.equals?.(user._id);
+  }
+  if (user.role === 'reviewer') {
+    const reviewer = await Reviewer.findOne({ userId: user._id });
+    if (!reviewer) return false;
+    return isAssignedReviewer(submission.assignedReviewerId, reviewer._id);
+  }
+  return false;
+};
+
 export const getSubmissions = async (req, res, next) => {
   try {
     const { status } = req.query;
@@ -108,8 +130,8 @@ export const updateSubmission = async (req, res, next) => {
       if (!submission.submittedBy.equals(user._id)) {
         return errorResponse(res, 'Access denied.', 403);
       }
-      if (submission.status !== 'draft') {
-        return errorResponse(res, 'Only draft submissions can be edited.', 400);
+      if (!RESEARCHER_EDITABLE_STATUSES.includes(submission.status)) {
+        return errorResponse(res, 'Only draft or revision-required submissions can be edited.', 400);
       }
     } else if (user.role !== 'admin') {
       return errorResponse(res, 'Access denied.', 403);
@@ -140,13 +162,16 @@ export const submitForReview = async (req, res, next) => {
       return errorResponse(res, 'Access denied.', 403);
     }
 
-    if (submission.status !== 'draft') {
-      return errorResponse(res, 'Only draft submissions can be submitted for review.', 400);
+    if (!RESEARCHER_SUBMITTABLE_STATUSES.includes(submission.status)) {
+      return errorResponse(res, 'Only draft or revision-required submissions can be submitted for review.', 400);
     }
 
     submission.status = 'under_review';
     submission.submittedDate = new Date();
     submission.reviewStatus = 'pending';
+    if (submission.reviewComments) {
+      submission.reviewComments = '';
+    }
     await submission.save();
 
     if (submission.submittedBy?.email) {
@@ -186,12 +211,17 @@ export const assignReviewer = async (req, res, next) => {
 
     const reviewer = await Reviewer.findById(reviewerId);
     if (!reviewer) return errorResponse(res, 'Reviewer not found.', 404);
+    if (!reviewer.isActive) return errorResponse(res, 'This reviewer is inactive.', 400);
 
     submission.assignedReviewer = reviewer.name;
     submission.assignedReviewerId = reviewer._id;
     await submission.save();
 
-    await sendReviewAssignedEmail(reviewer.email, reviewer.name, submission.researchTitle);
+    try {
+      await sendReviewAssignedEmail(reviewer.email, reviewer.name, submission.researchTitle);
+    } catch (emailErr) {
+      console.error('Review assignment email failed:', emailErr.message);
+    }
 
     const updated = await Submission.findById(id)
       .populate('submittedBy', 'firstName lastName email')
@@ -215,9 +245,9 @@ export const submitReview = async (req, res, next) => {
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
 
     const reviewer = await Reviewer.findOne({ userId: user._id });
-    const isAssignedReviewer = reviewer && submission.assignedReviewerId?._id?.equals(reviewer._id);
+    const isAssigned = isAssignedReviewer(submission.assignedReviewerId, reviewer?._id);
     const isAdmin = user.role === 'admin';
-    if (!isAssignedReviewer && !isAdmin) {
+    if (!isAssigned && !isAdmin) {
       return errorResponse(res, 'You are not assigned to review this submission.', 403);
     }
 
@@ -227,12 +257,16 @@ export const submitReview = async (req, res, next) => {
     await submission.save();
 
     if (submission.submittedBy?.email) {
-      await sendSubmissionStatusEmail(
-        submission.submittedBy.email,
-        submission.submittedBy.name,
-        submission.researchTitle,
-        submission.status
-      );
+      try {
+        await sendSubmissionStatusEmail(
+          submission.submittedBy.email,
+          submission.submittedBy.name,
+          submission.researchTitle,
+          submission.status
+        );
+      } catch (emailErr) {
+        console.error('Submission status email failed:', emailErr.message);
+      }
     }
 
     const updated = await Submission.findById(id)
@@ -258,9 +292,9 @@ export const updateFieldComments = async (req, res, next) => {
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
 
     const reviewer = await Reviewer.findOne({ userId: user._id });
-    const isAssignedReviewer = reviewer && submission.assignedReviewerId?._id?.equals(reviewer._id);
+    const isAssigned = isAssignedReviewer(submission.assignedReviewerId, reviewer?._id);
     const isAdmin = user.role === 'admin';
-    if (!isAssignedReviewer && !isAdmin) {
+    if (!isAssigned && !isAdmin) {
       return errorResponse(res, 'You are not authorized to add comments to this submission.', 403);
     }
 
@@ -280,12 +314,18 @@ export const updateFieldComments = async (req, res, next) => {
 export const exportSubmission = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const user = req.user;
 
     const submission = await Submission.findById(id)
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
+
+    const hasAccess = await canAccessSubmission(submission, user);
+    if (!hasAccess) {
+      return errorResponse(res, 'Access denied.', 403);
+    }
 
     return successResponse(res, {
       submission: submission.toObject ? submission.toObject() : submission,

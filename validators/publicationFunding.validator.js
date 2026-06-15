@@ -16,7 +16,7 @@ export const createPublicationFundingSchema = Joi.object({
   manuscriptTitle: Joi.string().trim().required(),
   applicantName: Joi.string().trim().required(),
   formData: Joi.object().unknown(true),
-  status: Joi.string().valid('draft', 'under_review').optional(),
+  status: Joi.string().valid('draft').optional(),
   sections: sectionsSchema,
 });
 
@@ -24,7 +24,7 @@ export const updatePublicationFundingSchema = Joi.object({
   manuscriptTitle: Joi.string().trim(),
   applicantName: Joi.string().trim(),
   formData: Joi.object().unknown(true),
-  status: Joi.string().valid('draft').optional(),
+  status: Joi.string().valid('draft', 'revisions_required').optional(),
   sections: sectionsSchema,
 }).min(1);
 

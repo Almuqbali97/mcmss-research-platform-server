@@ -5,7 +5,7 @@ export const createSubmissionSchema = Joi.object({
   principalInvestigator: Joi.string().trim().required(),
   formData: Joi.object().unknown(true),
   data: Joi.object().unknown(true),
-  status: Joi.string().valid('draft', 'under_review').optional(),
+  status: Joi.string().valid('draft').optional(),
   sections: Joi.object({
     section1: Joi.boolean(),
     section2: Joi.boolean(),
@@ -22,7 +22,7 @@ export const updateSubmissionSchema = Joi.object({
   principalInvestigator: Joi.string().trim(),
   formData: Joi.object().unknown(true),
   data: Joi.object().unknown(true),
-  status: Joi.string().valid('draft').optional(),
+  status: Joi.string().valid('draft', 'revisions_required').optional(),
   sections: Joi.object({
     section1: Joi.boolean(),
     section2: Joi.boolean(),

@@ -26,7 +26,7 @@ const generateTokens = (userId) => {
  */
 export const signup = async (req, res, next) => {
   try {
-    const { firstName, lastName, email, password, role } = req.body;
+    const { firstName, lastName, email, password } = req.body;
     const emailLower = email.toLowerCase();
 
     const existingUser = await User.findOne({ email: emailLower });
@@ -42,7 +42,7 @@ export const signup = async (req, res, next) => {
       firstName,
       lastName,
       password,
-      role: role || 'researcher',
+      role: 'researcher',
       expiresAt,
     });
 
@@ -74,6 +74,12 @@ export const verifySignup = async (req, res, next) => {
     const pending = await PendingSignup.findOne({ email: emailLower });
     if (!pending) {
       return errorResponse(res, 'Registration session expired. Please sign up again.', 400);
+    }
+
+    const existingUser = await User.findOne({ email: emailLower });
+    if (existingUser) {
+      await PendingSignup.deleteOne({ email: emailLower });
+      return errorResponse(res, 'This email is already registered.', 400);
     }
 
     const user = await User.create({
@@ -239,6 +245,9 @@ export const changePassword = async (req, res, next) => {
   try {
     const { currentPassword, newPassword } = req.body;
     const user = await User.findById(req.userId).select('+password');
+    if (!user) {
+      return errorResponse(res, 'User not found.', 401);
+    }
 
     const isMatch = await user.comparePassword(currentPassword);
     if (!isMatch) {
@@ -266,6 +275,9 @@ export const resendSignupOTP = async (req, res, next) => {
     if (!pending) {
       return errorResponse(res, 'No pending registration found. Please sign up again.', 400);
     }
+
+    pending.expiresAt = new Date(Date.now() + config.otp.expiresInMinutes * 60 * 1000);
+    await pending.save();
 
     await createAndSendOTP(emailLower, 'email_verification', `${pending.firstName} ${pending.lastName}`);
     return successResponse(res, null, 'A new verification code has been sent to your email.');
@@ -313,6 +325,9 @@ export const verifyOTPHandler = async (req, res, next) => {
 export const getMe = async (req, res, next) => {
   try {
     const user = await User.findById(req.userId);
+    if (!user) {
+      return errorResponse(res, 'User not found.', 401);
+    }
     return successResponse(res, user.toAuthJSON());
   } catch (error) {
     next(error);
