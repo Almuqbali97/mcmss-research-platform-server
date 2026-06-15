@@ -33,6 +33,8 @@ app.get('/api', (req, res) => {
 });
 
 app.use('/api', routes);
+// Backward compatibility when VITE_API_URL omits the /api suffix
+app.use(routes);
 
 app.use(notFound);
 app.use(globalErrorHandler);
