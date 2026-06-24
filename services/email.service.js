@@ -186,12 +186,12 @@ const templates = {
       subject: 'Acknowledgment of Proposal Submission',
       content: `
       <p style="margin: 0 0 16px;">Good day ${escapeHtml(recipientName)},</p>
-      <p style="margin: 0 0 16px;">This is to confirm that your research proposal entitled &ldquo;<strong>${safeTitle}</strong>&rdquo; was received by the Ethics Committee at the Medical City for Military and Security Services (MCMSS) on <strong>${escapeHtml(receivedDateStr)}</strong>.</p>
+      <p style="margin: 0 0 16px;">This is to confirm that your research proposal entitled &ldquo;<strong>${safeTitle}</strong>&rdquo; was received by the Medical Research Ethics Committee (MREC) on <strong>${escapeHtml(receivedDateStr)}</strong>.</p>
       <p style="margin: 0 0 16px;">Your submission will undergo formal review by the Committee.</p>
-      <p style="margin: 0 0 16px;">You will be notified of the outcome by email within 5 weeks of the submission date.</p>
-      <p style="margin: 0 0 16px;">Kindly refrain from contacting the Ethics Committee (via phone, email, or text) regarding the proposal status before the 5-week review period has elapsed, as all updates will be communicated once the review is complete.</p>
+      <p style="margin: 0 0 16px;">You will be notified of the outcome by email within 4-6 weeks of the submission date.</p>
+      <p style="margin: 0 0 16px;">Kindly refrain from contacting the Medical Research Ethics Committee (via phone, email, or text) regarding the proposal status before the 4-6 week review period has elapsed, as all updates will be communicated once the review is complete.</p>
       <p style="margin: 0 0 16px;">If additional information is required during the review process, the Committee will contact you directly.</p>
-      <p style="margin: 24px 0 0;">Best regards,<br/><strong>Research Ethics Committee</strong><br/>Medical City for Military and Security Services<br/>Muscat, Oman</p>
+      <p style="margin: 24px 0 0;">Best regards,<br/><strong>Medical Research Ethics Committee</strong><br/>Muscat, Oman</p>
     `,
     };
   },

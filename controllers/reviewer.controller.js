@@ -1,4 +1,5 @@
 import Reviewer from '../models/Reviewer.model.js';
+import User from '../models/User.model.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
 
 export const getReviewers = async (req, res, next) => {
@@ -35,7 +36,12 @@ export const createReviewer = async (req, res, next) => {
       return errorResponse(res, 'A reviewer with this email already exists.', 400);
     }
 
-    const reviewer = await Reviewer.create(req.body);
+    const user = await User.findOne({ email: req.body.email.toLowerCase() });
+    const reviewerData = { ...req.body, ...(user ? { userId: user._id } : {}) };
+    const reviewer = await Reviewer.create(reviewerData);
+    if (user) {
+      await User.findByIdAndUpdate(user._id, { role: 'reviewer' });
+    }
     return successResponse(res, reviewer, 'Reviewer created.', 201);
   } catch (error) {
     next(error);
