@@ -1,4 +1,7 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import Submission from '../models/Submission.model.js';
 import Reviewer from '../models/Reviewer.model.js';
 import { config } from '../config/index.js';
@@ -27,6 +30,33 @@ const decisionPage = (heading, message, ok = true) => `<!DOCTYPE html>
 
 const RESEARCHER_EDITABLE_STATUSES = ['draft', 'revisions_required'];
 const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', 'revisions_required'];
+
+const uploadsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
+
+const SUBMISSION_FILE_FIELDS = [
+  'informationSheetFiles',
+  'consentFormFiles',
+  'grantDocuments',
+  'ethicsApprovalDocuments',
+  'sampleSizeFiles',
+  'dataVariablesFiles',
+  'researchProposalFiles',
+  'bloodTissueAbroadDocuments',
+];
+
+/* Best-effort removal of uploaded files referenced in a submission's formData. */
+const removeSubmissionFiles = (formData) => {
+  if (!formData) return;
+  for (const field of SUBMISSION_FILE_FIELDS) {
+    const refs = formData[field];
+    if (!Array.isArray(refs)) continue;
+    for (const ref of refs) {
+      if (!ref?.filename) continue;
+      const filePath = path.join(uploadsDir, path.basename(ref.filename));
+      fs.promises.unlink(filePath).catch(() => {});
+    }
+  }
+};
 
 const isAssignedReviewer = (assignedReviewerId, reviewerId) => {
   if (!assignedReviewerId || !reviewerId) return false;
@@ -162,6 +192,35 @@ export const updateSubmission = async (req, res, next) => {
       .populate('assignedReviewerId', 'name email specialization');
 
     return successResponse(res, updated);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteSubmission = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    const submission = await Submission.findById(id);
+    if (!submission) return errorResponse(res, 'Submission not found.', 404);
+
+    if (user.role === 'researcher') {
+      if (!submission.submittedBy.equals(user._id)) {
+        return errorResponse(res, 'Access denied.', 403);
+      }
+    } else if (user.role !== 'admin') {
+      return errorResponse(res, 'Access denied.', 403);
+    }
+
+    if (submission.status !== 'draft') {
+      return errorResponse(res, 'Only draft submissions can be deleted.', 400);
+    }
+
+    removeSubmissionFiles(submission.formData);
+    await submission.deleteOne();
+
+    return successResponse(res, { id }, 'Draft deleted.');
   } catch (error) {
     next(error);
   }

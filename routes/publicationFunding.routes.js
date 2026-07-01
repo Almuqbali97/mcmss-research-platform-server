@@ -44,6 +44,11 @@ router.put(
   validate(updatePublicationFundingSchema),
   publicationFundingController.updatePublicationFundingApplication
 );
+router.delete(
+  '/:id',
+  authorize('researcher', 'admin'),
+  publicationFundingController.deletePublicationFundingApplication
+);
 router.post(
   '/:id/submit',
   authorize('researcher', 'admin'),

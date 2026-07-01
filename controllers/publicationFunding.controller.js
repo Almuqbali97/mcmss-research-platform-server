@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import PublicationFunding from '../models/PublicationFunding.model.js';
 import Reviewer from '../models/Reviewer.model.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
@@ -11,6 +14,33 @@ import { notifyAdminOfSubmission } from '../services/notification.service.js';
 
 const RESEARCHER_EDITABLE_STATUSES = ['draft', 'revisions_required'];
 const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', 'revisions_required'];
+
+const uploadsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
+
+const PF_FILE_FIELDS = [
+  'frontPageOrArticleFiles',
+  'proofOfPaymentFiles',
+  'acceptanceLetterFiles',
+  'publishedArticleFiles',
+  'invoiceReceiptFiles',
+  'irbApprovalFiles',
+  'copeDoajProofFiles',
+  'additionalSupportingFiles',
+];
+
+/* Best-effort removal of uploaded files referenced in an application's formData. */
+const removeApplicationFiles = (formData) => {
+  if (!formData) return;
+  for (const field of PF_FILE_FIELDS) {
+    const refs = formData[field];
+    if (!Array.isArray(refs)) continue;
+    for (const ref of refs) {
+      if (!ref?.filename) continue;
+      const filePath = path.join(uploadsDir, path.basename(ref.filename));
+      fs.promises.unlink(filePath).catch(() => {});
+    }
+  }
+};
 
 const isAssignedReviewer = (assignedReviewerId, reviewerId) => {
   if (!assignedReviewerId || !reviewerId) return false;
@@ -143,6 +173,35 @@ export const updatePublicationFundingApplication = async (req, res, next) => {
     const updated = await PublicationFunding.findById(id).populate(populateOptions);
 
     return successResponse(res, updated);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deletePublicationFundingApplication = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    const application = await PublicationFunding.findById(id);
+    if (!application) return errorResponse(res, 'Application not found.', 404);
+
+    if (user.role === 'researcher') {
+      if (!application.submittedBy.equals(user._id)) {
+        return errorResponse(res, 'Access denied.', 403);
+      }
+    } else if (user.role !== 'admin') {
+      return errorResponse(res, 'Access denied.', 403);
+    }
+
+    if (application.status !== 'draft') {
+      return errorResponse(res, 'Only draft applications can be deleted.', 400);
+    }
+
+    removeApplicationFiles(application.formData);
+    await application.deleteOne();
+
+    return successResponse(res, { id }, 'Draft deleted.');
   } catch (error) {
     next(error);
   }
