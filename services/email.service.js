@@ -180,6 +180,50 @@ const templates = {
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
     `,
   }),
+  newSubmissionAdmin: (adminName, formType, title, applicantName, referenceId, appName) => ({
+    subject: `New ${formType} Submitted - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(adminName)},</p>
+      <p style="margin: 0 0 16px;">A new <strong>${escapeHtml(formType)}</strong> has been submitted for review.</p>
+      <table role="presentation" style="margin: 16px 0; width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 6px 0; color: #7f8c8d; width: 140px;">Reference</td><td style="padding: 6px 0;"><strong>${escapeHtml(referenceId || 'N/A')}</strong></td></tr>
+        <tr><td style="padding: 6px 0; color: #7f8c8d;">Title</td><td style="padding: 6px 0;">${escapeHtml(title || 'Untitled')}</td></tr>
+        <tr><td style="padding: 6px 0; color: #7f8c8d;">Submitted by</td><td style="padding: 6px 0;">${escapeHtml(applicantName || 'N/A')}</td></tr>
+      </table>
+      <p style="margin: 0 0 16px;">Please log in to the admin panel to review this submission.</p>
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+    `,
+  }),
+  supervisorApprovalRequest: (supervisorName, studentName, title, approveUrl, rejectUrl, appName) => ({
+    subject: `Research Supervision Approval Requested - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(supervisorName || 'Supervisor')},</p>
+      <p style="margin: 0 0 16px;">${escapeHtml(studentName || 'A research student')} has listed you as their supervisor for the following research submission and requests your approval:</p>
+      <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid #2980b9; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
+      <p style="margin: 0 0 16px;">Please confirm whether you approve this submission:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 8px 0;">
+        <tr>
+          <td style="padding-right: 12px;">
+            <a href="${approveUrl}" style="display: inline-block; padding: 12px 28px; background-color: #27ae60; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Approve</a>
+          </td>
+          <td>
+            <a href="${rejectUrl}" style="display: inline-block; padding: 12px 28px; background-color: #c0392b; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Reject</a>
+          </td>
+        </tr>
+      </table>
+      <p style="margin: 16px 0 0; font-size: 13px; color: #7f8c8d;">If you did not expect this request, you may ignore this email.</p>
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+    `,
+  }),
+  supervisorDecisionNotice: (recipientName, title, decision, supervisorEmail, appName) => ({
+    subject: `Supervisor ${decision === 'approved' ? 'Approved' : 'Rejected'} Your Submission - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(recipientName || 'Researcher')},</p>
+      <p style="margin: 0 0 16px;">Your supervisor (${escapeHtml(supervisorEmail || '')}) has <strong>${decision === 'approved' ? 'approved' : 'rejected'}</strong> the submission:</p>
+      <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid ${decision === 'approved' ? '#27ae60' : '#c0392b'}; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+    `,
+  }),
   submissionAcknowledgment: (recipientName, title, receivedDateStr) => {
     const safeTitle = escapeHtml(title);
     return {
@@ -228,9 +272,65 @@ export const sendReviewAssignedEmail = async (reviewerEmail, reviewerName, submi
   return sendEmail({ to: reviewerEmail, subject, html: getEmailLayout(content) });
 };
 
-export const sendSubmissionStatusEmail = async (email, name, submissionTitle, status) => {
+export const sendSubmissionStatusEmail = async (email, name, submissionTitle, status, piEmailRaw) => {
   const { subject, content } = templates.submissionStatusUpdate(name, submissionTitle, status, BRANDING.appName);
+  const piEmail = typeof piEmailRaw === 'string' ? piEmailRaw.trim().toLowerCase() : '';
+  const submitterLower = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const cc =
+    piEmail && EMAIL_RE.test(piEmail) && piEmail !== submitterLower ? piEmail : undefined;
+  return sendEmail({ to: email, cc, subject, html: getEmailLayout(content) });
+};
+
+/* Emails the supervisor an approval request with approve/reject links. */
+export const sendSupervisorApprovalEmail = async (
+  supervisorEmail,
+  supervisorName,
+  studentName,
+  title,
+  approveUrl,
+  rejectUrl
+) => {
+  if (!supervisorEmail) return { sent: false, messageId: null };
+  const { subject, content } = templates.supervisorApprovalRequest(
+    supervisorName,
+    studentName,
+    title,
+    approveUrl,
+    rejectUrl,
+    BRANDING.appName
+  );
+  return sendEmail({ to: supervisorEmail, subject, html: getEmailLayout(content) });
+};
+
+/* Notifies the submitter of the supervisor's decision. */
+export const sendSupervisorDecisionEmail = async (email, name, title, decision, supervisorEmail) => {
+  if (!email) return { sent: false, messageId: null };
+  const { subject, content } = templates.supervisorDecisionNotice(
+    name,
+    title,
+    decision,
+    supervisorEmail,
+    BRANDING.appName
+  );
   return sendEmail({ to: email, subject, html: getEmailLayout(content) });
+};
+
+/* Notifies the configured admin that a new form was submitted. */
+export const sendNewSubmissionAdminEmail = async (
+  adminEmail,
+  adminName,
+  { formType, title, applicantName, referenceId }
+) => {
+  if (!adminEmail) return { sent: false, messageId: null };
+  const { subject, content } = templates.newSubmissionAdmin(
+    adminName || 'Admin',
+    formType,
+    title,
+    applicantName,
+    referenceId,
+    BRANDING.appName
+  );
+  return sendEmail({ to: adminEmail, subject, html: getEmailLayout(content) });
 };
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;

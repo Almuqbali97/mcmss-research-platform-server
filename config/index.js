@@ -24,6 +24,7 @@ export const config = {
   },
   app: {
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+    backendUrl: process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`,
     appName: process.env.APP_NAME || 'Research and Studies Committee',
     logoUrl: process.env.EMAIL_LOGO_URL || 'https://mcmss-client.onrender.com/assets/logo-DVgwY-qi.png',
   },

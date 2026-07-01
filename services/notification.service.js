@@ -1,0 +1,25 @@
+import Setting from '../models/Setting.model.js';
+import { sendNewSubmissionAdminEmail } from './email.service.js';
+
+/**
+ * Emails the admin configured in settings that a new form has been submitted.
+ * No-op when no recipient is configured. Never throws.
+ */
+export const notifyAdminOfSubmission = async ({ formType, title, applicantName, referenceId }) => {
+  try {
+    const setting = await Setting.getGlobal();
+    await setting.populate('submissionNotificationRecipient', 'firstName lastName email');
+    const recipient = setting.submissionNotificationRecipient;
+    if (!recipient?.email) return;
+
+    const adminName = `${recipient.firstName || ''} ${recipient.lastName || ''}`.trim();
+    await sendNewSubmissionAdminEmail(recipient.email, adminName, {
+      formType,
+      title,
+      applicantName,
+      referenceId,
+    });
+  } catch (err) {
+    console.error('Admin submission notification failed:', err.message);
+  }
+};

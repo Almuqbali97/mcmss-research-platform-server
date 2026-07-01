@@ -1,12 +1,29 @@
+import crypto from 'crypto';
 import Submission from '../models/Submission.model.js';
 import Reviewer from '../models/Reviewer.model.js';
+import { config } from '../config/index.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
 import { generateSubmissionId } from '../utils/generateSubmissionId.js';
 import {
   sendReviewAssignedEmail,
   sendSubmissionStatusEmail,
   sendSubmissionAcknowledgmentEmail,
+  sendSupervisorApprovalEmail,
+  sendSupervisorDecisionEmail,
 } from '../services/email.service.js';
+import { notifyAdminOfSubmission } from '../services/notification.service.js';
+
+const EMAIL_RE = /^\S+@\S+\.\S+$/;
+
+/* Renders a minimal standalone HTML page for the supervisor decision link. */
+const decisionPage = (heading, message, ok = true) => `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${heading}</title></head>
+<body style="margin:0;font-family:'Segoe UI',Tahoma,sans-serif;background:#f5f5f5;">
+<div style="max-width:520px;margin:60px auto;background:#fff;border-radius:8px;padding:40px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.08);">
+<h1 style="color:${ok ? '#27ae60' : '#c0392b'};font-size:22px;margin:0 0 12px;">${heading}</h1>
+<p style="color:#2c3e50;font-size:15px;line-height:1.6;margin:0;">${message}</p>
+</div></body></html>`;
 
 const RESEARCHER_EDITABLE_STATUSES = ['draft', 'revisions_required'];
 const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', 'revisions_required'];
@@ -189,6 +206,40 @@ export const submitForReview = async (req, res, next) => {
       }
     }
 
+    await notifyAdminOfSubmission({
+      formType: 'Research Ethics Submission',
+      title: submission.researchTitle,
+      applicantName: submission.principalInvestigator,
+      referenceId: submission.submissionId,
+    });
+
+    // Masters/PhD submissions require supervisor approval via email.
+    const supervisorEmail = submission.formData?.supervisorEmail?.trim();
+    if (submission.formData?.mastersOrPhd === 'Yes' && supervisorEmail && EMAIL_RE.test(supervisorEmail)) {
+      try {
+        const token = crypto.randomBytes(24).toString('hex');
+        submission.supervisorApproval = {
+          email: supervisorEmail,
+          token,
+          status: 'pending',
+          decidedAt: null,
+        };
+        await submission.save();
+
+        const base = `${config.app.backendUrl}/api/submissions/supervisor-decision/${token}`;
+        await sendSupervisorApprovalEmail(
+          supervisorEmail,
+          submission.formData?.supervisorName,
+          submission.principalInvestigator,
+          submission.researchTitle,
+          `${base}?decision=approve`,
+          `${base}?decision=reject`
+        );
+      } catch (supErr) {
+        console.error('Supervisor approval email failed:', supErr.message);
+      }
+    }
+
     const updated = await Submission.findById(id)
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
@@ -258,11 +309,15 @@ export const submitReview = async (req, res, next) => {
 
     if (submission.submittedBy?.email) {
       try {
+        const submitterName =
+          `${submission.submittedBy.firstName || ''} ${submission.submittedBy.lastName || ''}`.trim() ||
+          'Researcher';
         await sendSubmissionStatusEmail(
           submission.submittedBy.email,
-          submission.submittedBy.name,
+          submitterName,
           submission.researchTitle,
-          submission.status
+          submission.status,
+          submission.formData?.principalInvestigator?.email
         );
       } catch (emailErr) {
         console.error('Submission status email failed:', emailErr.message);
@@ -308,6 +363,63 @@ export const updateFieldComments = async (req, res, next) => {
     return successResponse(res, updated, 'Field comments saved.');
   } catch (error) {
     next(error);
+  }
+};
+
+/* Public endpoint hit from the supervisor approval email. Records the decision. */
+export const supervisorDecision = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const decisionRaw = (req.query.decision || '').toLowerCase();
+    const decision = decisionRaw === 'approve' ? 'approved' : decisionRaw === 'reject' ? 'rejected' : null;
+
+    if (!decision) {
+      return res.status(400).send(decisionPage('Invalid Request', 'The approval link is malformed.', false));
+    }
+
+    const submission = await Submission.findOne({ 'supervisorApproval.token': token })
+      .select('+supervisorApproval.token')
+      .populate('submittedBy', 'firstName lastName email');
+
+    if (!submission) {
+      return res.status(404).send(decisionPage('Link Not Found', 'This approval link is invalid or has expired.', false));
+    }
+
+    if (submission.supervisorApproval.status && submission.supervisorApproval.status !== 'pending') {
+      return res
+        .status(200)
+        .send(decisionPage('Already Recorded', `This submission was already ${submission.supervisorApproval.status}. No further action is needed.`, submission.supervisorApproval.status === 'approved'));
+    }
+
+    submission.supervisorApproval.status = decision;
+    submission.supervisorApproval.decidedAt = new Date();
+    submission.supervisorApproval.token = null;
+    await submission.save();
+
+    if (submission.submittedBy?.email) {
+      try {
+        await sendSupervisorDecisionEmail(
+          submission.submittedBy.email,
+          submission.submittedBy.name,
+          submission.researchTitle,
+          decision,
+          submission.supervisorApproval.email
+        );
+      } catch (mailErr) {
+        console.error('Supervisor decision notice failed:', mailErr.message);
+      }
+    }
+
+    return res
+      .status(200)
+      .send(decisionPage(
+        decision === 'approved' ? 'Submission Approved' : 'Submission Rejected',
+        `Thank you. Your decision to ${decision === 'approved' ? 'approve' : 'reject'} this submission has been recorded.`,
+        decision === 'approved'
+      ));
+  } catch (error) {
+    console.error('Supervisor decision error:', error.message);
+    return res.status(500).send(decisionPage('Something Went Wrong', 'Please try again later.', false));
   }
 };
 

@@ -26,6 +26,9 @@ const maybeMultipart = (req, res, next) => {
   }
 };
 
+// Public: supervisor clicks approve/reject from their email (no auth).
+router.get('/supervisor-decision/:token', submissionController.supervisorDecision);
+
 router.use(authenticate);
 
 router.get('/', submissionController.getSubmissions);

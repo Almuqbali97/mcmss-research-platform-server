@@ -7,6 +7,7 @@ import {
   sendSubmissionStatusEmail,
   sendSubmissionAcknowledgmentEmail,
 } from '../services/email.service.js';
+import { notifyAdminOfSubmission } from '../services/notification.service.js';
 
 const RESEARCHER_EDITABLE_STATUSES = ['draft', 'revisions_required'];
 const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', 'revisions_required'];
@@ -184,6 +185,13 @@ export const submitPublicationFundingForReview = async (req, res, next) => {
         console.error('Publication funding acknowledgment email failed:', emailErr.message);
       }
     }
+
+    await notifyAdminOfSubmission({
+      formType: 'Publication Funding Application',
+      title: application.manuscriptTitle,
+      applicantName: application.applicantName,
+      referenceId: application.applicationId,
+    });
 
     const updated = await PublicationFunding.findById(id).populate(populateOptions);
 

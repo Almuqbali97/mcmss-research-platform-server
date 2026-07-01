@@ -55,6 +55,16 @@ const submissionSchema = new mongoose.Schema(
     reviewComments: {
       type: String,
     },
+    supervisorApproval: {
+      email: { type: String, default: null },
+      token: { type: String, default: null, select: false },
+      status: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected'],
+        default: null,
+      },
+      decidedAt: { type: Date, default: null },
+    },
     fieldComments: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
