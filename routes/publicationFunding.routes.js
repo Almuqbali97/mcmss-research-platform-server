@@ -62,7 +62,8 @@ router.post(
 );
 router.post(
   '/:id/review',
-  authorize('reviewer', 'admin'),
+  // Reviewers keep the 'researcher' role (reviewer capability via flag); controller enforces assignment.
+  authorize('researcher', 'reviewer', 'admin'),
   validate(submitReviewSchema),
   publicationFundingController.submitPublicationFundingReview
 );

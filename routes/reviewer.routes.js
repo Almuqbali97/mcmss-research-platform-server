@@ -10,6 +10,7 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/', reviewerController.getReviewers);
+router.get('/candidates', authorize('admin'), reviewerController.getReviewerCandidates);
 router.get('/:id', reviewerController.getReviewer);
 
 router.post('/', authorize('admin'), validate(createReviewerSchema), reviewerController.createReviewer);

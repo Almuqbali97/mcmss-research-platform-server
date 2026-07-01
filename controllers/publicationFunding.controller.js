@@ -50,13 +50,12 @@ const isAssignedReviewer = (assignedReviewerId, reviewerId) => {
 
 const canAccessApplication = async (application, user) => {
   if (user.role === 'admin') return true;
-  if (user.role === 'researcher') {
-    return application.submittedBy?._id?.equals(user._id) || application.submittedBy?.equals?.(user._id);
-  }
-  if (user.role === 'reviewer') {
-    const reviewer = await Reviewer.findOne({ userId: user._id });
-    if (!reviewer) return false;
-    return isAssignedReviewer(application.assignedReviewerId, reviewer._id);
+  const isSubmitter =
+    application.submittedBy?._id?.equals(user._id) || application.submittedBy?.equals?.(user._id);
+  if (isSubmitter) return true;
+  if (user.isReviewer) {
+    const reviewer = await Reviewer.findOne({ userId: user._id, isActive: true });
+    if (reviewer && isAssignedReviewer(application.assignedReviewerId, reviewer._id)) return true;
   }
   return false;
 };
@@ -74,13 +73,8 @@ export const getPublicationFundingApplications = async (req, res, next) => {
 
     if (user.role === 'admin') {
       // Admin sees all
-    } else if (user.role === 'reviewer') {
-      const reviewer = await Reviewer.findOne({ userId: user._id });
-      if (!reviewer) {
-        return successResponse(res, []);
-      }
-      query.assignedReviewerId = reviewer._id;
     } else {
+      // Researchers (including reviewers) see their own applications here.
       query.submittedBy = user._id;
     }
 
@@ -107,18 +101,8 @@ export const getPublicationFundingApplication = async (req, res, next) => {
       return errorResponse(res, 'Application not found.', 404);
     }
 
-    if (user.role === 'researcher' && !application.submittedBy?._id?.equals(user._id)) {
+    if (!(await canAccessApplication(application, user))) {
       return errorResponse(res, 'Access denied.', 403);
-    }
-
-    if (user.role === 'reviewer') {
-      const reviewer = await Reviewer.findOne({ userId: user._id });
-      if (!reviewer) {
-        return errorResponse(res, 'Access denied.', 403);
-      }
-      if (!application.assignedReviewerId?._id?.equals(reviewer._id)) {
-        return errorResponse(res, 'Access denied.', 403);
-      }
     }
 
     return successResponse(res, application);

@@ -13,8 +13,13 @@ import {
   sendSubmissionAcknowledgmentEmail,
   sendSupervisorApprovalEmail,
   sendSupervisorDecisionEmail,
+  sendPiDeclarationApprovalEmail,
+  sendPiDeclarationDecisionEmail,
+  sendReviewerAssignmentEmail,
+  sendApprovalGrantedEmail,
+  sendRejectionNoticeEmail,
 } from '../services/email.service.js';
-import { notifyAdminOfSubmission } from '../services/notification.service.js';
+import { notifyAdminOfSubmission, notifyAdminOfReviewerRejection } from '../services/notification.service.js';
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
@@ -28,8 +33,13 @@ const decisionPage = (heading, message, ok = true) => `<!DOCTYPE html>
 <p style="color:#2c3e50;font-size:15px;line-height:1.6;margin:0;">${message}</p>
 </div></body></html>`;
 
-const RESEARCHER_EDITABLE_STATUSES = ['draft', 'revisions_required'];
-const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', 'revisions_required'];
+const REVISION_STATUSES = ['revisions_required', 'conditional_minor', 'major_revisions'];
+const RESEARCHER_EDITABLE_STATUSES = ['draft', ...REVISION_STATUSES];
+const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', ...REVISION_STATUSES];
+
+const FIRST_REVISION_DAYS = 30;
+const SECOND_REVISION_DAYS = { '1_week': 7, '2_weeks': 14 };
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const uploadsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
 
@@ -66,13 +76,12 @@ const isAssignedReviewer = (assignedReviewerId, reviewerId) => {
 
 const canAccessSubmission = async (submission, user) => {
   if (user.role === 'admin') return true;
-  if (user.role === 'researcher') {
-    return submission.submittedBy?._id?.equals(user._id) || submission.submittedBy?.equals?.(user._id);
-  }
-  if (user.role === 'reviewer') {
-    const reviewer = await Reviewer.findOne({ userId: user._id });
-    if (!reviewer) return false;
-    return isAssignedReviewer(submission.assignedReviewerId, reviewer._id);
+  const isSubmitter =
+    submission.submittedBy?._id?.equals(user._id) || submission.submittedBy?.equals?.(user._id);
+  if (isSubmitter) return true;
+  if (user.isReviewer) {
+    const reviewer = await Reviewer.findOne({ userId: user._id, isActive: true });
+    if (reviewer && isAssignedReviewer(submission.assignedReviewerId, reviewer._id)) return true;
   }
   return false;
 };
@@ -85,19 +94,35 @@ export const getSubmissions = async (req, res, next) => {
 
     if (user.role === 'admin') {
       // Admin sees all
-    } else if (user.role === 'reviewer') {
-      const reviewer = await Reviewer.findOne({ userId: user._id });
-      if (!reviewer) {
-        return successResponse(res, []);
-      }
-      query.assignedReviewerId = reviewer._id;
     } else {
+      // Researchers (including those who are also reviewers) see their own submissions here.
+      // Reviewer assignments are served separately by getAssignedSubmissions.
       query.submittedBy = user._id;
     }
 
     if (status) query.status = status;
 
     const submissions = await Submission.find(query)
+      .populate('submittedBy', 'firstName lastName email')
+      .populate('assignedReviewerId', 'name email specialization')
+      .sort({ createdAt: -1 });
+
+    return successResponse(res, submissions);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* Submissions assigned to the current user as a reviewer (for the reviewer dashboard). */
+export const getAssignedSubmissions = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const reviewer = await Reviewer.findOne({ userId: user._id, isActive: true });
+    if (!reviewer) {
+      return successResponse(res, []);
+    }
+
+    const submissions = await Submission.find({ assignedReviewerId: reviewer._id })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization')
       .sort({ createdAt: -1 });
@@ -121,16 +146,14 @@ export const getSubmission = async (req, res, next) => {
       return errorResponse(res, 'Submission not found.', 404);
     }
 
-    if (user.role === 'researcher' && !submission.submittedBy?._id?.equals(user._id)) {
-      return errorResponse(res, 'Access denied.', 403);
-    }
-
-    if (user.role === 'reviewer') {
-      const reviewer = await Reviewer.findOne({ userId: user._id });
-      if (reviewer && !submission.assignedReviewerId?._id?.equals(reviewer._id)) {
-        return errorResponse(res, 'Access denied.', 403);
+    if (user.role !== 'admin') {
+      const isSubmitter = submission.submittedBy?._id?.equals(user._id);
+      let assignedToUser = false;
+      if (user.isReviewer) {
+        const reviewer = await Reviewer.findOne({ userId: user._id, isActive: true });
+        assignedToUser = !!reviewer && isAssignedReviewer(submission.assignedReviewerId, reviewer._id);
       }
-      if (!reviewer) {
+      if (!isSubmitter && !assignedToUser) {
         return errorResponse(res, 'Access denied.', 403);
       }
     }
@@ -248,6 +271,13 @@ export const submitForReview = async (req, res, next) => {
     if (submission.reviewComments) {
       submission.reviewComments = '';
     }
+    // Resubmitted in time: clear the pending deadline (keep the round count).
+    if (submission.revision) {
+      submission.revision.deadline = null;
+      submission.revision.startedAt = null;
+      submission.revision.firstReminderSent = false;
+      submission.revision.finalReminderSent = false;
+    }
     await submission.save();
 
     if (submission.submittedBy?.email) {
@@ -299,6 +329,37 @@ export const submitForReview = async (req, res, next) => {
       }
     }
 
+    // Every submission requires the Principal Investigator to approve the Declaration
+    // before a reviewer may review it. Email the PI an approve/disapprove link.
+    const piEmail = submission.formData?.principalInvestigator?.email?.trim();
+    if (piEmail && EMAIL_RE.test(piEmail)) {
+      try {
+        const token = crypto.randomBytes(24).toString('hex');
+        submission.piDeclarationApproval = {
+          email: piEmail,
+          token,
+          status: 'pending',
+          decidedAt: null,
+        };
+        await submission.save();
+
+        const submitterName =
+          `${submission.submittedBy.firstName || ''} ${submission.submittedBy.lastName || ''}`.trim() ||
+          'A researcher';
+        const base = `${config.app.backendUrl}/api/submissions/pi-declaration-decision/${token}`;
+        await sendPiDeclarationApprovalEmail(
+          piEmail,
+          submission.formData?.principalInvestigator?.fullName,
+          submitterName,
+          submission.researchTitle,
+          `${base}?decision=approve`,
+          `${base}?decision=reject`
+        );
+      } catch (piErr) {
+        console.error('PI declaration approval email failed:', piErr.message);
+      }
+    }
+
     const updated = await Submission.findById(id)
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
@@ -323,21 +384,32 @@ export const assignReviewer = async (req, res, next) => {
     if (!reviewer) return errorResponse(res, 'Reviewer not found.', 404);
     if (!reviewer.isActive) return errorResponse(res, 'This reviewer is inactive.', 400);
 
+    const token = crypto.randomBytes(24).toString('hex');
     submission.assignedReviewer = reviewer.name;
     submission.assignedReviewerId = reviewer._id;
+    submission.reviewerAcceptance = { status: 'pending', token, decidedAt: null };
+    // A fresh assignment resets any prior review decision.
+    submission.reviewStatus = 'pending';
     await submission.save();
 
     try {
-      await sendReviewAssignedEmail(reviewer.email, reviewer.name, submission.researchTitle);
+      const base = `${config.app.backendUrl}/api/submissions/reviewer-decision/${token}`;
+      await sendReviewerAssignmentEmail(
+        reviewer.email,
+        reviewer.name,
+        submission.researchTitle,
+        `${base}?decision=accept`,
+        `${base}?decision=reject`
+      );
     } catch (emailErr) {
-      console.error('Review assignment email failed:', emailErr.message);
+      console.error('Reviewer assignment email failed:', emailErr.message);
     }
 
     const updated = await Submission.findById(id)
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
-    return successResponse(res, updated, 'Reviewer assigned successfully.');
+    return successResponse(res, updated, 'Reviewer assigned. Awaiting their acceptance.');
   } catch (error) {
     next(error);
   }
@@ -361,9 +433,46 @@ export const submitReview = async (req, res, next) => {
       return errorResponse(res, 'You are not assigned to review this submission.', 403);
     }
 
+    // Reviewers cannot review until the PI has approved the Declaration. Admins may override.
+    if (!isAdmin && submission.piDeclarationApproval?.status !== 'approved') {
+      return errorResponse(res, 'The Principal Investigator has not yet approved the Declaration for this submission.', 403);
+    }
+
+    // Reviewers must accept the assignment before they can submit a decision. Admins may override.
+    if (!isAdmin && submission.reviewerAcceptance?.status !== 'accepted') {
+      return errorResponse(res, 'You must accept the review assignment before submitting a decision.', 403);
+    }
+
     submission.reviewStatus = status;
-    submission.status = status === 'approved' ? 'approved' : status === 'rejected' ? 'rejected' : 'revisions_required';
+    submission.status = status;
     submission.reviewComments = comments || '';
+
+    if (REVISION_STATUSES.includes(status)) {
+      // Start (or advance) the revision cycle and set the resubmission deadline.
+      const round = (submission.revision?.round || 0) + 1;
+      const now = new Date();
+      let days;
+      if (round === 1) {
+        days = FIRST_REVISION_DAYS;
+      } else {
+        const option = req.body.revisionDeadlineOption;
+        days = SECOND_REVISION_DAYS[option] ?? SECOND_REVISION_DAYS['2_weeks'];
+      }
+      submission.revision = {
+        round,
+        startedAt: now,
+        deadline: new Date(now.getTime() + days * DAY_MS),
+        firstReminderSent: false,
+        finalReminderSent: false,
+      };
+    } else {
+      // Approved / rejected: no pending deadline.
+      if (submission.revision) {
+        submission.revision.deadline = null;
+        submission.revision.startedAt = null;
+      }
+    }
+
     await submission.save();
 
     if (submission.submittedBy?.email) {
@@ -371,13 +480,27 @@ export const submitReview = async (req, res, next) => {
         const submitterName =
           `${submission.submittedBy.firstName || ''} ${submission.submittedBy.lastName || ''}`.trim() ||
           'Researcher';
-        await sendSubmissionStatusEmail(
-          submission.submittedBy.email,
-          submitterName,
-          submission.researchTitle,
-          submission.status,
-          submission.formData?.principalInvestigator?.email
-        );
+        const piEmail = submission.formData?.principalInvestigator?.email;
+        if (status === 'approved') {
+          await sendApprovalGrantedEmail(submission.submittedBy.email, submitterName, piEmail);
+        } else if (status === 'rejected') {
+          await sendRejectionNoticeEmail(
+            submission.submittedBy.email,
+            submitterName,
+            submission.researchTitle,
+            submission.submissionId,
+            piEmail
+          );
+        } else {
+          // Revision outcomes: generic status update with the reviewer's comments in the platform.
+          await sendSubmissionStatusEmail(
+            submission.submittedBy.email,
+            submitterName,
+            submission.researchTitle,
+            submission.status,
+            piEmail
+          );
+        }
       } catch (emailErr) {
         console.error('Submission status email failed:', emailErr.message);
       }
@@ -479,6 +602,174 @@ export const supervisorDecision = async (req, res) => {
   } catch (error) {
     console.error('Supervisor decision error:', error.message);
     return res.status(500).send(decisionPage('Something Went Wrong', 'Please try again later.', false));
+  }
+};
+
+/* Public endpoint hit from the PI declaration approval email. Records the decision. */
+export const piDeclarationDecision = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const decisionRaw = (req.query.decision || '').toLowerCase();
+    const decision = decisionRaw === 'approve' ? 'approved' : decisionRaw === 'reject' ? 'rejected' : null;
+
+    if (!decision) {
+      return res.status(400).send(decisionPage('Invalid Request', 'The approval link is malformed.', false));
+    }
+
+    const submission = await Submission.findOne({ 'piDeclarationApproval.token': token })
+      .select('+piDeclarationApproval.token')
+      .populate('submittedBy', 'firstName lastName email');
+
+    if (!submission) {
+      return res.status(404).send(decisionPage('Link Not Found', 'This approval link is invalid or has expired.', false));
+    }
+
+    if (submission.piDeclarationApproval.status && submission.piDeclarationApproval.status !== 'pending') {
+      return res
+        .status(200)
+        .send(decisionPage('Already Recorded', `This declaration was already ${submission.piDeclarationApproval.status}. No further action is needed.`, submission.piDeclarationApproval.status === 'approved'));
+    }
+
+    submission.piDeclarationApproval.status = decision;
+    submission.piDeclarationApproval.decidedAt = new Date();
+    submission.piDeclarationApproval.token = null;
+    await submission.save();
+
+    if (submission.submittedBy?.email) {
+      try {
+        const submitterName =
+          `${submission.submittedBy.firstName || ''} ${submission.submittedBy.lastName || ''}`.trim() ||
+          'Researcher';
+        await sendPiDeclarationDecisionEmail(
+          submission.submittedBy.email,
+          submitterName,
+          submission.researchTitle,
+          decision,
+          submission.piDeclarationApproval.email
+        );
+      } catch (mailErr) {
+        console.error('PI declaration decision notice failed:', mailErr.message);
+      }
+    }
+
+    return res
+      .status(200)
+      .send(decisionPage(
+        decision === 'approved' ? 'Declaration Approved' : 'Declaration Disapproved',
+        `Thank you. Your decision to ${decision === 'approved' ? 'approve' : 'disapprove'} this declaration has been recorded.`,
+        decision === 'approved'
+      ));
+  } catch (error) {
+    console.error('PI declaration decision error:', error.message);
+    return res.status(500).send(decisionPage('Something Went Wrong', 'Please try again later.', false));
+  }
+};
+
+/* Public endpoint hit from the reviewer assignment email. Records accept/decline. */
+export const reviewerAssignmentDecision = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const decisionRaw = (req.query.decision || '').toLowerCase();
+    const decision = decisionRaw === 'accept' ? 'accepted' : decisionRaw === 'reject' ? 'rejected' : null;
+
+    if (!decision) {
+      return res.status(400).send(decisionPage('Invalid Request', 'The link is malformed.', false));
+    }
+
+    const submission = await Submission.findOne({ 'reviewerAcceptance.token': token })
+      .select('+reviewerAcceptance.token')
+      .populate('assignedReviewerId', 'name email');
+
+    if (!submission) {
+      return res.status(404).send(decisionPage('Link Not Found', 'This link is invalid or has expired.', false));
+    }
+
+    if (submission.reviewerAcceptance.status && submission.reviewerAcceptance.status !== 'pending') {
+      return res
+        .status(200)
+        .send(decisionPage('Already Recorded', `You already ${submission.reviewerAcceptance.status} this review request. No further action is needed.`, submission.reviewerAcceptance.status === 'accepted'));
+    }
+
+    const reviewerName = submission.assignedReviewerId?.name || submission.assignedReviewer;
+
+    if (decision === 'accepted') {
+      submission.reviewerAcceptance.status = 'accepted';
+      submission.reviewerAcceptance.decidedAt = new Date();
+      submission.reviewerAcceptance.token = null;
+      await submission.save();
+
+      return res
+        .status(200)
+        .send(decisionPage('Review Accepted', 'Thank you. You can now review this submission from your dashboard.', true));
+    }
+
+    // Declined: unassign so an admin can reassign to someone else.
+    submission.reviewerAcceptance.status = 'rejected';
+    submission.reviewerAcceptance.decidedAt = new Date();
+    submission.reviewerAcceptance.token = null;
+    submission.assignedReviewer = null;
+    submission.assignedReviewerId = null;
+    submission.reviewStatus = 'pending';
+    await submission.save();
+
+    await notifyAdminOfReviewerRejection({ reviewerName, title: submission.researchTitle });
+
+    return res
+      .status(200)
+      .send(decisionPage('Review Declined', 'Thank you. The administrator will assign this review to another reviewer.', false));
+  } catch (error) {
+    console.error('Reviewer assignment decision error:', error.message);
+    return res.status(500).send(decisionPage('Something Went Wrong', 'Please try again later.', false));
+  }
+};
+
+/* Admin records the PI declaration decision on the PI's behalf. */
+export const adminSetPiDeclaration = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const decisionRaw = (req.body.decision || '').toLowerCase();
+    const decision = decisionRaw === 'approve' ? 'approved' : decisionRaw === 'reject' ? 'rejected' : null;
+
+    if (!decision) {
+      return errorResponse(res, 'Decision must be "approve" or "reject".', 400);
+    }
+
+    const submission = await Submission.findById(id).populate('submittedBy', 'firstName lastName email');
+    if (!submission) return errorResponse(res, 'Submission not found.', 404);
+
+    const piEmail = submission.piDeclarationApproval?.email || submission.formData?.principalInvestigator?.email || null;
+    submission.piDeclarationApproval = {
+      email: piEmail,
+      token: null,
+      status: decision,
+      decidedAt: new Date(),
+    };
+    await submission.save();
+
+    if (submission.submittedBy?.email) {
+      try {
+        const submitterName =
+          `${submission.submittedBy.firstName || ''} ${submission.submittedBy.lastName || ''}`.trim() ||
+          'Researcher';
+        await sendPiDeclarationDecisionEmail(
+          submission.submittedBy.email,
+          submitterName,
+          submission.researchTitle,
+          decision,
+          piEmail
+        );
+      } catch (mailErr) {
+        console.error('PI declaration decision notice failed:', mailErr.message);
+      }
+    }
+
+    const updated = await Submission.findById(id)
+      .populate('submittedBy', 'firstName lastName email')
+      .populate('assignedReviewerId', 'name email specialization');
+
+    return successResponse(res, updated, `PI declaration ${decision}.`);
+  } catch (error) {
+    next(error);
   }
 };
 

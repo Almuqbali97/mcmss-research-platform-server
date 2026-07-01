@@ -7,6 +7,7 @@ import connectDB from './config/db.js';
 import { config } from './config/index.js';
 import routes from './routes/index.js';
 import { notFound, globalErrorHandler } from './middlewares/error.middleware.js';
+import { startRevisionDeadlineScheduler } from './services/reminder.service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -44,6 +45,7 @@ connectDB()
     app.listen(config.port, () => {
       console.log(`Server running on http://localhost:${config.port}`);
     });
+    startRevisionDeadlineScheduler();
   })
   .catch((err) => {
     console.error('Failed to start server:', err);

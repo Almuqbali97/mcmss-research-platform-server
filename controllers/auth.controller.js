@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import User from '../models/User.model.js';
+import Reviewer from '../models/Reviewer.model.js';
 import PendingSignup from '../models/PendingSignup.model.js';
 import { config } from '../config/index.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
@@ -10,6 +11,29 @@ import {
   sendPasswordChangedEmail,
 } from '../services/email.service.js';
 import { createAndSendOTP, verifyOTP } from '../services/otp.service.js';
+
+/**
+ * Links a user account to a matching reviewer record created before they signed up.
+ * Sets Reviewer.userId and promotes the user to the reviewer role. Mutates `user`.
+ */
+const linkReviewerAccount = async (user) => {
+  try {
+    const reviewer = await Reviewer.findOne({ email: user.email.toLowerCase(), isActive: true });
+    if (!reviewer) return;
+
+    if (!reviewer.userId) {
+      reviewer.userId = user._id;
+      await reviewer.save();
+    }
+    // Reviewers keep their researcher role and gain reviewer capability via this flag.
+    if (!user.isReviewer) {
+      user.isReviewer = true;
+      await user.save({ validateBeforeSave: false });
+    }
+  } catch (err) {
+    console.error('Failed to link reviewer account:', err.message);
+  }
+};
 
 const generateTokens = (userId) => {
   const accessToken = jwt.sign({ userId }, config.jwt.secret, {
@@ -92,6 +116,7 @@ export const verifySignup = async (req, res, next) => {
     });
 
     await PendingSignup.deleteOne({ email: emailLower });
+    await linkReviewerAccount(user);
     await sendWelcomeEmail(user.email, `${user.firstName} ${user.lastName}`);
 
     const { accessToken, refreshToken } = generateTokens(user._id);
@@ -131,6 +156,9 @@ export const login = async (req, res, next) => {
     if (!user.isActive) {
       return errorResponse(res, 'Account has been deactivated.', 403);
     }
+
+    // Reconcile reviewer linkage for accounts added as reviewers after signup.
+    await linkReviewerAccount(user);
 
     user.lastLoginAt = new Date();
     const { accessToken, refreshToken } = generateTokens(user._id);

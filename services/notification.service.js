@@ -1,5 +1,5 @@
 import Setting from '../models/Setting.model.js';
-import { sendNewSubmissionAdminEmail } from './email.service.js';
+import { sendNewSubmissionAdminEmail, sendReviewerRejectedAdminEmail } from './email.service.js';
 
 /**
  * Emails the admin configured in settings that a new form has been submitted.
@@ -21,5 +21,23 @@ export const notifyAdminOfSubmission = async ({ formType, title, applicantName, 
     });
   } catch (err) {
     console.error('Admin submission notification failed:', err.message);
+  }
+};
+
+/**
+ * Emails the configured admin that a reviewer declined a review assignment.
+ * No-op when no recipient is configured. Never throws.
+ */
+export const notifyAdminOfReviewerRejection = async ({ reviewerName, title }) => {
+  try {
+    const setting = await Setting.getGlobal();
+    await setting.populate('submissionNotificationRecipient', 'firstName lastName email');
+    const recipient = setting.submissionNotificationRecipient;
+    if (!recipient?.email) return;
+
+    const adminName = `${recipient.firstName || ''} ${recipient.lastName || ''}`.trim();
+    await sendReviewerRejectedAdminEmail(recipient.email, adminName, reviewerName, title);
+  } catch (err) {
+    console.error('Reviewer rejection notification failed:', err.message);
   }
 };

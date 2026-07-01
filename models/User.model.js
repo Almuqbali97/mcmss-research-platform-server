@@ -32,6 +32,10 @@ const userSchema = new mongoose.Schema(
       enum: ['researcher', 'reviewer', 'admin'],
       default: 'researcher',
     },
+    isReviewer: {
+      type: Boolean,
+      default: false,
+    },
     isEmailVerified: {
       type: Boolean,
       default: false,
@@ -81,6 +85,7 @@ userSchema.methods.toAuthJSON = function () {
     lastName: this.lastName,
     name: this.name,
     role: this.role,
+    isReviewer: this.isReviewer,
     isEmailVerified: this.isEmailVerified,
   };
 };

@@ -39,7 +39,7 @@ export const assignReviewerSchema = Joi.object({
 });
 
 export const submitReviewSchema = Joi.object({
-  status: Joi.string().valid('approved', 'rejected', 'revisions_required').required(),
+  status: Joi.string().valid('approved', 'rejected', 'conditional_minor', 'major_revisions').required(),
   comments: Joi.string().allow(''),
 });
 

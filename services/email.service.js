@@ -4,7 +4,7 @@ import { config } from '../config/index.js';
 const logoUrl = config.app.logoUrl || `${config.app.frontendUrl}/src/assets/logo.png`;
 
 const BRANDING = {
-  appName: 'Research and Studies Committee',
+  appName: 'Medical Research and Studies Committee',
   orgName: 'Medical City for Military and Security Services',
 };
 
@@ -224,21 +224,132 @@ const templates = {
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
     `,
   }),
+  piDeclarationApprovalRequest: (piName, submitterName, title, approveUrl, rejectUrl, appName) => ({
+    subject: `Research Declaration Approval Requested - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(piName || 'Principal Investigator')},</p>
+      <p style="margin: 0 0 16px;">${escapeHtml(submitterName || 'A researcher')} has named you as the Principal Investigator on the following research submission and requests your approval of the Declaration of Investigator:</p>
+      <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid #2980b9; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
+      <p style="margin: 0 0 16px;">By approving, you certify that the information in this application is correct and a true representation of the research to be undertaken. Please confirm your decision:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 8px 0;">
+        <tr>
+          <td style="padding-right: 12px;">
+            <a href="${approveUrl}" style="display: inline-block; padding: 12px 28px; background-color: #27ae60; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Approve</a>
+          </td>
+          <td>
+            <a href="${rejectUrl}" style="display: inline-block; padding: 12px 28px; background-color: #c0392b; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Disapprove</a>
+          </td>
+        </tr>
+      </table>
+      <p style="margin: 16px 0 0; font-size: 13px; color: #7f8c8d;">Review of this submission cannot begin until you record your decision. If you did not expect this request, you may ignore this email.</p>
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+    `,
+  }),
+  piDeclarationDecisionNotice: (recipientName, title, decision, piEmail, appName) => ({
+    subject: `Principal Investigator ${decision === 'approved' ? 'Approved' : 'Disapproved'} the Declaration - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(recipientName || 'Researcher')},</p>
+      <p style="margin: 0 0 16px;">The Principal Investigator (${escapeHtml(piEmail || '')}) has <strong>${decision === 'approved' ? 'approved' : 'disapproved'}</strong> the Declaration of Investigator for the submission:</p>
+      <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid ${decision === 'approved' ? '#27ae60' : '#c0392b'}; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
+      ${decision === 'approved' ? '<p style="margin: 0 0 16px;">The submission can now proceed to review.</p>' : ''}
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+    `,
+  }),
+  reviewerAssignmentRequest: (reviewerName, title, acceptUrl, rejectUrl, appName) => ({
+    subject: `Review Request - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(reviewerName || 'Reviewer')},</p>
+      <p style="margin: 0 0 16px;">You have been requested to review the following research submission:</p>
+      <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid #2980b9; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
+      <p style="margin: 0 0 16px;">Please accept or decline this review request:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 8px 0;">
+        <tr>
+          <td style="padding-right: 12px;">
+            <a href="${acceptUrl}" style="display: inline-block; padding: 12px 28px; background-color: #27ae60; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Accept</a>
+          </td>
+          <td>
+            <a href="${rejectUrl}" style="display: inline-block; padding: 12px 28px; background-color: #c0392b; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Decline</a>
+          </td>
+        </tr>
+      </table>
+      <p style="margin: 16px 0 0; font-size: 13px; color: #7f8c8d;">If you decline, the administrator will assign the review to another reviewer.</p>
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+    `,
+  }),
+  reviewerRejectedAssignment: (adminName, reviewerName, title, appName) => ({
+    subject: `Reviewer Declined a Review - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(adminName || 'Admin')},</p>
+      <p style="margin: 0 0 16px;"><strong>${escapeHtml(reviewerName || 'A reviewer')}</strong> has declined the review request for:</p>
+      <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid #c0392b; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
+      <p style="margin: 0 0 16px;">The submission is now unassigned. Please assign it to another reviewer.</p>
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+    `,
+  }),
   submissionAcknowledgment: (recipientName, title, receivedDateStr) => {
     const safeTitle = escapeHtml(title);
     return {
       subject: 'Acknowledgment of Proposal Submission',
       content: `
-      <p style="margin: 0 0 16px;">Good day ${escapeHtml(recipientName)},</p>
-      <p style="margin: 0 0 16px;">This is to confirm that your research proposal entitled &ldquo;<strong>${safeTitle}</strong>&rdquo; was received by the Medical Research Ethics Committee (MREC) on <strong>${escapeHtml(receivedDateStr)}</strong>.</p>
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(recipientName)},</p>
+      <p style="margin: 0 0 16px;">This is to confirm that your research proposal entitled &ldquo;<strong>${safeTitle}</strong>&rdquo; was received by the Medical Research Ethics Committee at the Medical City for Military and Security Services (MCMSS) on <strong>${escapeHtml(receivedDateStr)}</strong>.</p>
       <p style="margin: 0 0 16px;">Your submission will undergo formal review by the Committee.</p>
       <p style="margin: 0 0 16px;">You will be notified of the outcome by email within 4-6 weeks of the submission date.</p>
-      <p style="margin: 0 0 16px;">Kindly refrain from contacting the Medical Research Ethics Committee (via phone, email, or text) regarding the proposal status before the 4-6 week review period has elapsed, as all updates will be communicated once the review is complete.</p>
+      <p style="margin: 0 0 16px;">Kindly refrain from contacting the Ethics Committee (via phone, email, or text) regarding the proposal status before the 4-6-week review period has elapsed, as all updates will be communicated once the review is complete.</p>
       <p style="margin: 0 0 16px;">If additional information is required during the review process, the Committee will contact you directly.</p>
-      <p style="margin: 24px 0 0;">Best regards,<br/><strong>Medical Research Ethics Committee</strong><br/>Muscat, Oman</p>
+      <p style="margin: 24px 0 0;">Best regards,<br/><strong>Medical Research Ethics Committee</strong><br/>Medical City for Military and Security Services<br/>Muscat, Oman</p>
     `,
     };
   },
+  revisionReminder: (name, title, deadlineStr, daysLeft, reviseUrl, appName) => ({
+    subject: `Reminder: Revisions Due in ${daysLeft} Day${daysLeft === 1 ? '' : 's'} - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(name)},</p>
+      <p style="margin: 0 0 16px;">This is a reminder that your submission "<strong>${escapeHtml(title)}</strong>" requires revisions.</p>
+      <p style="margin: 16px 0; padding: 16px; background-color: #fff8e1; border-left: 4px solid #f39c12; border-radius: 4px;">
+        <strong>${daysLeft} day${daysLeft === 1 ? '' : 's'}</strong> remaining. The deadline is <strong>${escapeHtml(deadlineStr)}</strong>.
+      </p>
+      <p style="margin: 0 0 16px;">If the revised submission is not resubmitted before the deadline, the form will be automatically cancelled (archived).</p>
+      <p style="margin: 24px 0;"><a href="${reviseUrl}" style="display: inline-block; padding: 12px 24px; background-color: #2980b9; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Revise Submission</a></p>
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+    `,
+  }),
+  revisionArchived: (name, title, proposalNo, appName) => ({
+    subject: `Application Closed - Revision Deadline Passed - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(name)},</p>
+      <p style="margin: 0 0 16px;">This is to inform you that more than 30 days have passed since the ethics committee requested revisions to your study titled &ldquo;<strong>${escapeHtml(title)}</strong>&rdquo;${proposalNo ? ` [${escapeHtml(proposalNo)}]` : ''}. As we have not received the revised documents within this period, the original application is now considered closed according to our committee procedures.</p>
+      <p style="margin: 0 0 16px;">Any further submission related to this project will need to be submitted as a new application and will undergo the full ethics review process from the beginning.</p>
+      <p style="margin: 0 0 16px;">If you plan to re-submit, please ensure that all required documents are updated in line with the previous reviewer comments and current guidelines. Our office will be happy to clarify any procedural questions you may have.</p>
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>Medical Research Ethics Committee</strong><br/>Medical City for Military and Security Services<br/>Muscat, Oman</p>
+    `,
+  }),
+  approvalGranted: (name, appName) => ({
+    subject: `Research Ethics Approval Granted - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(name)},</p>
+      <p style="margin: 0 0 16px;">Thank you for submitting your research proposal for ethical review. The Ethics Committee at the Medical City for Military and Security Services (MCMSS) has completed its evaluation and has <strong>APPROVED</strong> your research protocol. This approval is granted according to the details provided in your application and is subject to the following conditions:</p>
+      <ul style="margin: 0 0 16px; padding-left: 20px; color: #2c3e50;">
+        <li style="margin: 0 0 8px;">All data collection and procedures are conducted in strict adherence to the approved research protocol.</li>
+        <li style="margin: 0 0 8px;">Any amendments to the research design and changes to the project must be relayed to the Ethics Committee for approval prior to its&rsquo; implementation.</li>
+        <li style="margin: 0 0 8px;">Any event which may affect the ethical acceptability of the study (adverse events, unexpected outcomes, or new information related to the study) must be reported to the Ethics Committee as soon as possible.</li>
+        <li style="margin: 0 0 8px;">Please notify the Ethics Committee upon completion of the research study.</li>
+        <li style="margin: 0 0 8px;">Please apply for extension if the research study is not complete by the date of study completion entered in the ethics approval form.</li>
+      </ul>
+      <p style="margin: 0 0 16px;">Please log in to the platform to download the letter of approval from the Medical Research Ethics Committee.</p>
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>Medical Research Ethics Committee</strong><br/>Medical City for Military and Security Services<br/>Muscat, Oman</p>
+    `,
+  }),
+  rejectionNotice: (name, title, proposalNo, appName) => ({
+    subject: `Research Ethics Review Outcome - ${appName}`,
+    content: `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(name)},</p>
+      <p style="margin: 0 0 16px;">The Research Ethics Committee at MCMSS has reviewed your proposal entitled &ldquo;<strong>${escapeHtml(title)}</strong>&rdquo;${proposalNo ? ` [${escapeHtml(proposalNo)}]` : ''}. Following careful consideration, the Committee regrets to inform you that the proposal is not approved at this time.</p>
+      <p style="margin: 0 0 16px;">The Committee appreciates the effort invested in the preparation of the proposal and thanks you for your interest in conducting research.</p>
+      <p style="margin: 0 0 16px;">Please log in to the platform to view full details.</p>
+      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>Medical Research Ethics Committee</strong><br/>Medical City for Military and Security Services<br/>Muscat, Oman</p>
+    `,
+  }),
 };
 
 export const sendSignupOTPEmail = async (email, name, otp, expiresMinutes = 15) => {
@@ -270,6 +381,20 @@ export const sendOTPEmail = async (email, name, otp, purpose = 'Verification', e
 export const sendReviewAssignedEmail = async (reviewerEmail, reviewerName, submissionTitle) => {
   const { subject, content } = templates.reviewAssigned(reviewerName, submissionTitle, BRANDING.appName);
   return sendEmail({ to: reviewerEmail, subject, html: getEmailLayout(content) });
+};
+
+/* Asks a reviewer to accept or decline a review assignment via email links. */
+export const sendReviewerAssignmentEmail = async (reviewerEmail, reviewerName, title, acceptUrl, rejectUrl) => {
+  if (!reviewerEmail) return { sent: false, messageId: null };
+  const { subject, content } = templates.reviewerAssignmentRequest(reviewerName, title, acceptUrl, rejectUrl, BRANDING.appName);
+  return sendEmail({ to: reviewerEmail, subject, html: getEmailLayout(content) });
+};
+
+/* Notifies the admin that a reviewer declined an assignment. */
+export const sendReviewerRejectedAdminEmail = async (adminEmail, adminName, reviewerName, title) => {
+  if (!adminEmail) return { sent: false, messageId: null };
+  const { subject, content } = templates.reviewerRejectedAssignment(adminName, reviewerName, title, BRANDING.appName);
+  return sendEmail({ to: adminEmail, subject, html: getEmailLayout(content) });
 };
 
 export const sendSubmissionStatusEmail = async (email, name, submissionTitle, status, piEmailRaw) => {
@@ -310,6 +435,39 @@ export const sendSupervisorDecisionEmail = async (email, name, title, decision, 
     title,
     decision,
     supervisorEmail,
+    BRANDING.appName
+  );
+  return sendEmail({ to: email, subject, html: getEmailLayout(content) });
+};
+
+export const sendPiDeclarationApprovalEmail = async (
+  piEmail,
+  piName,
+  submitterName,
+  title,
+  approveUrl,
+  rejectUrl
+) => {
+  if (!piEmail) return { sent: false, messageId: null };
+  const { subject, content } = templates.piDeclarationApprovalRequest(
+    piName,
+    submitterName,
+    title,
+    approveUrl,
+    rejectUrl,
+    BRANDING.appName
+  );
+  return sendEmail({ to: piEmail, subject, html: getEmailLayout(content) });
+};
+
+/* Notifies the submitter of the Principal Investigator's declaration decision. */
+export const sendPiDeclarationDecisionEmail = async (email, name, title, decision, piEmail) => {
+  if (!email) return { sent: false, messageId: null };
+  const { subject, content } = templates.piDeclarationDecisionNotice(
+    name,
+    title,
+    decision,
+    piEmail,
     BRANDING.appName
   );
   return sendEmail({ to: email, subject, html: getEmailLayout(content) });
@@ -365,4 +523,57 @@ export const sendSubmissionAcknowledgmentEmail = async (
     subject,
     html: getEmailLayout(content),
   });
+};
+
+/* Reminds the submitter to resubmit before the revision deadline. */
+export const sendRevisionReminderEmail = async (email, name, title, deadline, daysLeft) => {
+  if (!email) return { sent: false, messageId: null };
+  const deadlineStr = formatSubmissionReceivedDate(deadline);
+  const reviseUrl = `${config.app.frontendUrl}/dashboard`;
+  const { subject, content } = templates.revisionReminder(
+    name || 'Researcher',
+    title || 'your submission',
+    deadlineStr,
+    daysLeft,
+    reviseUrl,
+    BRANDING.appName
+  );
+  return sendEmail({ to: email, subject, html: getEmailLayout(content) });
+};
+
+/* Notifies the submitter their application was closed after the revision deadline passed. */
+export const sendRevisionArchivedEmail = async (email, name, title, proposalNo) => {
+  if (!email) return { sent: false, messageId: null };
+  const { subject, content } = templates.revisionArchived(
+    name || 'Researcher',
+    title || 'your submission',
+    proposalNo || '',
+    BRANDING.appName
+  );
+  return sendEmail({ to: email, subject, html: getEmailLayout(content) });
+};
+
+/* Notifies the submitter that ethics approval was granted. CCs the PI when distinct. */
+export const sendApprovalGrantedEmail = async (email, name, piEmailRaw) => {
+  if (!email) return { sent: false, messageId: null };
+  const { subject, content } = templates.approvalGranted(name || 'Researcher', BRANDING.appName);
+  const piEmail = typeof piEmailRaw === 'string' ? piEmailRaw.trim().toLowerCase() : '';
+  const submitterLower = email.trim().toLowerCase();
+  const cc = piEmail && EMAIL_RE.test(piEmail) && piEmail !== submitterLower ? piEmail : undefined;
+  return sendEmail({ to: email, cc, subject, html: getEmailLayout(content) });
+};
+
+/* Notifies the submitter that the proposal was not approved. CCs the PI when distinct. */
+export const sendRejectionNoticeEmail = async (email, name, title, proposalNo, piEmailRaw) => {
+  if (!email) return { sent: false, messageId: null };
+  const { subject, content } = templates.rejectionNotice(
+    name || 'Researcher',
+    title || 'your proposal',
+    proposalNo || '',
+    BRANDING.appName
+  );
+  const piEmail = typeof piEmailRaw === 'string' ? piEmailRaw.trim().toLowerCase() : '';
+  const submitterLower = email.trim().toLowerCase();
+  const cc = piEmail && EMAIL_RE.test(piEmail) && piEmail !== submitterLower ? piEmail : undefined;
+  return sendEmail({ to: email, cc, subject, html: getEmailLayout(content) });
 };
