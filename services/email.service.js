@@ -110,6 +110,19 @@ const sendEmail = async ({ to, cc, subject, html, text }) => {
   }
 };
 
+// Human-readable labels for review outcome statuses used in outgoing emails.
+const REVIEW_STATUS_LABELS = {
+  approved: 'Approved',
+  rejected: 'Rejected',
+  revisions_required: 'Revisions required',
+  conditional_minor: 'Conditional approval – minor revisions',
+  major_revisions: 'Major revisions',
+};
+
+// Committee sign-off block used on outcome/decision emails.
+const COMMITTEE_SIGNATURE =
+  'Sincerely,<br/><strong>Medical Research Ethics Committee</strong><br/>Medical City for Military and Security Services<br/>Muscat, Oman';
+
 const templates = {
   signupOTP: (name, otp, appName, expiresMinutes) => ({
     subject: `Email Verification - ${appName}`,
@@ -175,9 +188,9 @@ const templates = {
     subject: `Submission Status Update - ${appName}`,
     content: `
       <p style="margin: 0 0 16px;">Dear ${name},</p>
-      <p style="margin: 0 0 16px;">The status of your submission "<strong>${submissionTitle}</strong>" has been updated to: <strong>${status.replace(/_/g, ' ')}</strong>.</p>
+      <p style="margin: 0 0 16px;">The status of your submission "<strong>${submissionTitle}</strong>" has been updated to: <strong>${REVIEW_STATUS_LABELS[status] || status.replace(/_/g, ' ')}</strong>.</p>
       <p style="margin: 0 0 16px;">Please log in to the platform to view the full details.</p>
-      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+      <p style="margin: 24px 0 0;">${COMMITTEE_SIGNATURE}</p>
     `,
   }),
   newSubmissionAdmin: (adminName, formType, title, applicantName, referenceId, appName) => ({
@@ -252,37 +265,6 @@ const templates = {
       <p style="margin: 0 0 16px;">The Principal Investigator (${escapeHtml(piEmail || '')}) has <strong>${decision === 'approved' ? 'approved' : 'disapproved'}</strong> the Declaration of Investigator for the submission:</p>
       <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid ${decision === 'approved' ? '#27ae60' : '#c0392b'}; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
       ${decision === 'approved' ? '<p style="margin: 0 0 16px;">The submission can now proceed to review.</p>' : ''}
-      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
-    `,
-  }),
-  reviewerAssignmentRequest: (reviewerName, title, acceptUrl, rejectUrl, appName) => ({
-    subject: `Review Request - ${appName}`,
-    content: `
-      <p style="margin: 0 0 16px;">Dear ${escapeHtml(reviewerName || 'Reviewer')},</p>
-      <p style="margin: 0 0 16px;">You have been requested to review the following research submission:</p>
-      <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid #2980b9; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
-      <p style="margin: 0 0 16px;">Please accept or decline this review request:</p>
-      <table role="presentation" cellpadding="0" cellspacing="0" style="margin: 8px 0;">
-        <tr>
-          <td style="padding-right: 12px;">
-            <a href="${acceptUrl}" style="display: inline-block; padding: 12px 28px; background-color: #27ae60; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Accept</a>
-          </td>
-          <td>
-            <a href="${rejectUrl}" style="display: inline-block; padding: 12px 28px; background-color: #c0392b; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Decline</a>
-          </td>
-        </tr>
-      </table>
-      <p style="margin: 16px 0 0; font-size: 13px; color: #7f8c8d;">If you decline, the administrator will assign the review to another reviewer.</p>
-      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
-    `,
-  }),
-  reviewerRejectedAssignment: (adminName, reviewerName, title, appName) => ({
-    subject: `Reviewer Declined a Review - ${appName}`,
-    content: `
-      <p style="margin: 0 0 16px;">Dear ${escapeHtml(adminName || 'Admin')},</p>
-      <p style="margin: 0 0 16px;"><strong>${escapeHtml(reviewerName || 'A reviewer')}</strong> has declined the review request for:</p>
-      <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid #c0392b; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
-      <p style="margin: 0 0 16px;">The submission is now unassigned. Please assign it to another reviewer.</p>
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
     `,
   }),
@@ -381,20 +363,6 @@ export const sendOTPEmail = async (email, name, otp, purpose = 'Verification', e
 export const sendReviewAssignedEmail = async (reviewerEmail, reviewerName, submissionTitle) => {
   const { subject, content } = templates.reviewAssigned(reviewerName, submissionTitle, BRANDING.appName);
   return sendEmail({ to: reviewerEmail, subject, html: getEmailLayout(content) });
-};
-
-/* Asks a reviewer to accept or decline a review assignment via email links. */
-export const sendReviewerAssignmentEmail = async (reviewerEmail, reviewerName, title, acceptUrl, rejectUrl) => {
-  if (!reviewerEmail) return { sent: false, messageId: null };
-  const { subject, content } = templates.reviewerAssignmentRequest(reviewerName, title, acceptUrl, rejectUrl, BRANDING.appName);
-  return sendEmail({ to: reviewerEmail, subject, html: getEmailLayout(content) });
-};
-
-/* Notifies the admin that a reviewer declined an assignment. */
-export const sendReviewerRejectedAdminEmail = async (adminEmail, adminName, reviewerName, title) => {
-  if (!adminEmail) return { sent: false, messageId: null };
-  const { subject, content } = templates.reviewerRejectedAssignment(adminName, reviewerName, title, BRANDING.appName);
-  return sendEmail({ to: adminEmail, subject, html: getEmailLayout(content) });
 };
 
 export const sendSubmissionStatusEmail = async (email, name, submissionTitle, status, piEmailRaw) => {

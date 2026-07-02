@@ -15,11 +15,10 @@ import {
   sendSupervisorDecisionEmail,
   sendPiDeclarationApprovalEmail,
   sendPiDeclarationDecisionEmail,
-  sendReviewerAssignmentEmail,
   sendApprovalGrantedEmail,
   sendRejectionNoticeEmail,
 } from '../services/email.service.js';
-import { notifyAdminOfSubmission, notifyAdminOfReviewerRejection } from '../services/notification.service.js';
+import { notifyAdminOfSubmission } from '../services/notification.service.js';
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
@@ -302,9 +301,15 @@ export const submitForReview = async (req, res, next) => {
       referenceId: submission.submissionId,
     });
 
-    // Masters/PhD submissions require supervisor approval via email.
+    // Masters/PhD submissions require supervisor approval via email — only on the
+    // first submission. Revisions reuse the decision already on record.
     const supervisorEmail = submission.formData?.supervisorEmail?.trim();
-    if (submission.formData?.mastersOrPhd === 'Yes' && supervisorEmail && EMAIL_RE.test(supervisorEmail)) {
+    if (
+      !submission.supervisorApproval?.status &&
+      submission.formData?.mastersOrPhd === 'Yes' &&
+      supervisorEmail &&
+      EMAIL_RE.test(supervisorEmail)
+    ) {
       try {
         const token = crypto.randomBytes(24).toString('hex');
         submission.supervisorApproval = {
@@ -329,10 +334,10 @@ export const submitForReview = async (req, res, next) => {
       }
     }
 
-    // Every submission requires the Principal Investigator to approve the Declaration
-    // before a reviewer may review it. Email the PI an approve/disapprove link.
+    // The Principal Investigator must approve the Declaration before a reviewer may
+    // review it — but only on the first submission. Revisions keep the prior approval.
     const piEmail = submission.formData?.principalInvestigator?.email?.trim();
-    if (piEmail && EMAIL_RE.test(piEmail)) {
+    if (!submission.piDeclarationApproval?.status && piEmail && EMAIL_RE.test(piEmail)) {
       try {
         const token = crypto.randomBytes(24).toString('hex');
         submission.piDeclarationApproval = {
@@ -384,32 +389,17 @@ export const assignReviewer = async (req, res, next) => {
     if (!reviewer) return errorResponse(res, 'Reviewer not found.', 404);
     if (!reviewer.isActive) return errorResponse(res, 'This reviewer is inactive.', 400);
 
-    const token = crypto.randomBytes(24).toString('hex');
     submission.assignedReviewer = reviewer.name;
     submission.assignedReviewerId = reviewer._id;
-    submission.reviewerAcceptance = { status: 'pending', token, decidedAt: null };
     // A fresh assignment resets any prior review decision.
     submission.reviewStatus = 'pending';
     await submission.save();
-
-    try {
-      const base = `${config.app.backendUrl}/api/submissions/reviewer-decision/${token}`;
-      await sendReviewerAssignmentEmail(
-        reviewer.email,
-        reviewer.name,
-        submission.researchTitle,
-        `${base}?decision=accept`,
-        `${base}?decision=reject`
-      );
-    } catch (emailErr) {
-      console.error('Reviewer assignment email failed:', emailErr.message);
-    }
 
     const updated = await Submission.findById(id)
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
-    return successResponse(res, updated, 'Reviewer assigned. Awaiting their acceptance.');
+    return successResponse(res, updated, 'Reviewer assigned.');
   } catch (error) {
     next(error);
   }
@@ -436,11 +426,6 @@ export const submitReview = async (req, res, next) => {
     // Reviewers cannot review until the PI has approved the Declaration. Admins may override.
     if (!isAdmin && submission.piDeclarationApproval?.status !== 'approved') {
       return errorResponse(res, 'The Principal Investigator has not yet approved the Declaration for this submission.', 403);
-    }
-
-    // Reviewers must accept the assignment before they can submit a decision. Admins may override.
-    if (!isAdmin && submission.reviewerAcceptance?.status !== 'accepted') {
-      return errorResponse(res, 'You must accept the review assignment before submitting a decision.', 403);
     }
 
     submission.reviewStatus = status;
@@ -543,6 +528,43 @@ export const updateFieldComments = async (req, res, next) => {
       .populate('assignedReviewerId', 'name email specialization');
 
     return successResponse(res, updated, 'Field comments saved.');
+  } catch (error) {
+    next(error);
+  }
+};
+
+/* Admin uploads the letter of approval (PDF) for an approved submission. */
+export const uploadApprovalCertificate = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const submission = await Submission.findById(id);
+    if (!submission) return errorResponse(res, 'Submission not found.', 404);
+    if (submission.status !== 'approved') {
+      return errorResponse(res, 'The approval certificate can only be uploaded once the submission is approved.', 400);
+    }
+    if (!req.file) return errorResponse(res, 'No file uploaded.', 400);
+
+    // Replace any previously uploaded certificate on disk.
+    if (submission.approvalCertificate?.filename) {
+      fs.promises
+        .unlink(path.join(uploadsDir, path.basename(submission.approvalCertificate.filename)))
+        .catch(() => {});
+    }
+
+    submission.approvalCertificate = {
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      path: `/api/uploads/${req.file.filename}`,
+      uploadedAt: new Date(),
+    };
+    await submission.save();
+
+    const updated = await Submission.findById(id)
+      .populate('submittedBy', 'firstName lastName email')
+      .populate('assignedReviewerId', 'name email specialization');
+
+    return successResponse(res, updated, 'Approval certificate uploaded.');
   } catch (error) {
     next(error);
   }
@@ -661,64 +683,6 @@ export const piDeclarationDecision = async (req, res) => {
       ));
   } catch (error) {
     console.error('PI declaration decision error:', error.message);
-    return res.status(500).send(decisionPage('Something Went Wrong', 'Please try again later.', false));
-  }
-};
-
-/* Public endpoint hit from the reviewer assignment email. Records accept/decline. */
-export const reviewerAssignmentDecision = async (req, res) => {
-  try {
-    const { token } = req.params;
-    const decisionRaw = (req.query.decision || '').toLowerCase();
-    const decision = decisionRaw === 'accept' ? 'accepted' : decisionRaw === 'reject' ? 'rejected' : null;
-
-    if (!decision) {
-      return res.status(400).send(decisionPage('Invalid Request', 'The link is malformed.', false));
-    }
-
-    const submission = await Submission.findOne({ 'reviewerAcceptance.token': token })
-      .select('+reviewerAcceptance.token')
-      .populate('assignedReviewerId', 'name email');
-
-    if (!submission) {
-      return res.status(404).send(decisionPage('Link Not Found', 'This link is invalid or has expired.', false));
-    }
-
-    if (submission.reviewerAcceptance.status && submission.reviewerAcceptance.status !== 'pending') {
-      return res
-        .status(200)
-        .send(decisionPage('Already Recorded', `You already ${submission.reviewerAcceptance.status} this review request. No further action is needed.`, submission.reviewerAcceptance.status === 'accepted'));
-    }
-
-    const reviewerName = submission.assignedReviewerId?.name || submission.assignedReviewer;
-
-    if (decision === 'accepted') {
-      submission.reviewerAcceptance.status = 'accepted';
-      submission.reviewerAcceptance.decidedAt = new Date();
-      submission.reviewerAcceptance.token = null;
-      await submission.save();
-
-      return res
-        .status(200)
-        .send(decisionPage('Review Accepted', 'Thank you. You can now review this submission from your dashboard.', true));
-    }
-
-    // Declined: unassign so an admin can reassign to someone else.
-    submission.reviewerAcceptance.status = 'rejected';
-    submission.reviewerAcceptance.decidedAt = new Date();
-    submission.reviewerAcceptance.token = null;
-    submission.assignedReviewer = null;
-    submission.assignedReviewerId = null;
-    submission.reviewStatus = 'pending';
-    await submission.save();
-
-    await notifyAdminOfReviewerRejection({ reviewerName, title: submission.researchTitle });
-
-    return res
-      .status(200)
-      .send(decisionPage('Review Declined', 'Thank you. The administrator will assign this review to another reviewer.', false));
-  } catch (error) {
-    console.error('Reviewer assignment decision error:', error.message);
     return res.status(500).send(decisionPage('Something Went Wrong', 'Please try again later.', false));
   }
 };

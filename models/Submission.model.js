@@ -55,15 +55,6 @@ const submissionSchema = new mongoose.Schema(
     reviewComments: {
       type: String,
     },
-    reviewerAcceptance: {
-      status: {
-        type: String,
-        enum: ['pending', 'accepted', 'rejected'],
-        default: null,
-      },
-      token: { type: String, default: null, select: false },
-      decidedAt: { type: Date, default: null },
-    },
     supervisorApproval: {
       email: { type: String, default: null },
       token: { type: String, default: null, select: false },
@@ -96,6 +87,14 @@ const submissionSchema = new mongoose.Schema(
     fieldComments: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
+    },
+    // Letter of approval (PDF) uploaded by an admin once the submission is approved.
+    // The researcher can download it from the platform.
+    approvalCertificate: {
+      filename: { type: String, default: null },
+      originalName: { type: String, default: null },
+      path: { type: String, default: null },
+      uploadedAt: { type: Date, default: null },
     },
     sections: {
       type: sectionSchema,

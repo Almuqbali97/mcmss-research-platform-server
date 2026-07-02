@@ -3,7 +3,7 @@ import * as submissionController from '../controllers/submission.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
 import { authorize } from '../middlewares/rbac.middleware.js';
 import { validate } from '../middlewares/validate.middleware.js';
-import { submissionUpload } from '../middlewares/upload.middleware.js';
+import { submissionUpload, approvalCertificateUpload } from '../middlewares/upload.middleware.js';
 import { parseMultipartSubmission } from '../middlewares/parseMultipart.middleware.js';
 import {
   createSubmissionSchema,
@@ -30,8 +30,6 @@ const maybeMultipart = (req, res, next) => {
 router.get('/supervisor-decision/:token', submissionController.supervisorDecision);
 // Public: PI clicks approve/disapprove the declaration from their email (no auth).
 router.get('/pi-declaration-decision/:token', submissionController.piDeclarationDecision);
-// Public: reviewer accepts/declines an assignment from their email (no auth).
-router.get('/reviewer-decision/:token', submissionController.reviewerAssignmentDecision);
 
 router.use(authenticate);
 
@@ -44,6 +42,7 @@ router.delete('/:id', authorize('researcher', 'admin'), submissionController.del
 router.post('/:id/submit', authorize('researcher', 'admin'), submissionController.submitForReview);
 router.post('/:id/assign-reviewer', authorize('admin'), validate(assignReviewerSchema), submissionController.assignReviewer);
 router.post('/:id/pi-declaration', authorize('admin'), submissionController.adminSetPiDeclaration);
+router.post('/:id/approval-certificate', authorize('admin'), approvalCertificateUpload, submissionController.uploadApprovalCertificate);
 // Reviewers keep the 'researcher' role (reviewer capability via flag); the controller enforces assignment.
 router.post('/:id/review', authorize('researcher', 'reviewer', 'admin'), validate(submitReviewSchema), submissionController.submitReview);
 router.patch('/:id/field-comments', authorize('researcher', 'reviewer', 'admin'), validate(fieldCommentsSchema), submissionController.updateFieldComments);

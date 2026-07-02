@@ -47,6 +47,19 @@ export const submissionUpload = multer({
   { name: 'bloodTissueAbroadDocuments', maxCount: 5 },
 ]);
 
+// Admin-only upload of the approval certificate (letter of approval). PDF only.
+export const approvalCertificateUpload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (path.extname(file.originalname).toLowerCase() === '.pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed.'), false);
+    }
+  },
+  limits: { fileSize: 100 * 1024 * 1024 },
+}).single('approvalCertificate');
+
 const publicationFundingFileFilter = (req, file, cb) => {
   const allowed = ['.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'];
   const ext = path.extname(file.originalname).toLowerCase();
