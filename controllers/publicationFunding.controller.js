@@ -2,11 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import PublicationFunding from '../models/PublicationFunding.model.js';
-import Reviewer from '../models/Reviewer.model.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
 import { generatePublicationFundingId } from '../utils/generatePublicationFundingId.js';
 import {
-  sendReviewAssignedEmail,
   sendSubmissionStatusEmail,
   sendSubmissionAcknowledgmentEmail,
 } from '../services/email.service.js';
@@ -42,27 +40,16 @@ const removeApplicationFiles = (formData) => {
   }
 };
 
-const isAssignedReviewer = (assignedReviewerId, reviewerId) => {
-  if (!assignedReviewerId || !reviewerId) return false;
-  const assignedId = assignedReviewerId._id || assignedReviewerId;
-  return assignedId.equals(reviewerId);
-};
-
 const canAccessApplication = async (application, user) => {
   if (user.role === 'admin') return true;
   const isSubmitter =
     application.submittedBy?._id?.equals(user._id) || application.submittedBy?.equals?.(user._id);
   if (isSubmitter) return true;
-  if (user.isReviewer) {
-    const reviewer = await Reviewer.findOne({ userId: user._id, isActive: true });
-    if (reviewer && isAssignedReviewer(application.assignedReviewerId, reviewer._id)) return true;
-  }
   return false;
 };
 
 const populateOptions = [
   { path: 'submittedBy', select: 'firstName lastName email' },
-  { path: 'assignedReviewerId', select: 'name email specialization' },
 ];
 
 export const getPublicationFundingApplications = async (req, res, next) => {
@@ -244,36 +231,6 @@ export const submitPublicationFundingForReview = async (req, res, next) => {
   }
 };
 
-export const assignPublicationFundingReviewer = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { reviewerId } = req.body;
-
-    const application = await PublicationFunding.findById(id).populate(populateOptions);
-    if (!application) return errorResponse(res, 'Application not found.', 404);
-
-    const reviewer = await Reviewer.findById(reviewerId);
-    if (!reviewer) return errorResponse(res, 'Reviewer not found.', 404);
-    if (!reviewer.isActive) return errorResponse(res, 'This reviewer is inactive.', 400);
-
-    application.assignedReviewer = reviewer.name;
-    application.assignedReviewerId = reviewer._id;
-    await application.save();
-
-    try {
-      await sendReviewAssignedEmail(reviewer.email, reviewer.name, application.manuscriptTitle);
-    } catch (emailErr) {
-      console.error('Publication funding review assignment email failed:', emailErr.message);
-    }
-
-    const updated = await PublicationFunding.findById(id).populate(populateOptions);
-
-    return successResponse(res, updated, 'Reviewer assigned successfully.');
-  } catch (error) {
-    next(error);
-  }
-};
-
 export const submitPublicationFundingReview = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -281,15 +238,11 @@ export const submitPublicationFundingReview = async (req, res, next) => {
     const user = req.user;
 
     const application = await PublicationFunding.findById(id)
-      .populate('submittedBy', 'firstName lastName email')
-      .populate('assignedReviewerId', 'name email specialization');
+      .populate('submittedBy', 'firstName lastName email');
     if (!application) return errorResponse(res, 'Application not found.', 404);
 
-    const reviewer = await Reviewer.findOne({ userId: user._id });
-    const isAssigned = isAssignedReviewer(application.assignedReviewerId, reviewer?._id);
-    const isAdmin = user.role === 'admin';
-    if (!isAssigned && !isAdmin) {
-      return errorResponse(res, 'You are not assigned to review this application.', 403);
+    if (user.role !== 'admin') {
+      return errorResponse(res, 'Only an admin can review funding applications.', 403);
     }
 
     application.reviewStatus = status;

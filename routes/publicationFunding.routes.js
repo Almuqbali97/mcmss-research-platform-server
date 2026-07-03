@@ -8,7 +8,6 @@ import { parseMultipartPublicationFunding } from '../middlewares/parsePublicatio
 import {
   createPublicationFundingSchema,
   updatePublicationFundingSchema,
-  assignReviewerSchema,
   submitReviewSchema,
   committeeReviewSchema,
 } from '../validators/publicationFunding.validator.js';
@@ -55,15 +54,8 @@ router.post(
   publicationFundingController.submitPublicationFundingForReview
 );
 router.post(
-  '/:id/assign-reviewer',
-  authorize('admin'),
-  validate(assignReviewerSchema),
-  publicationFundingController.assignPublicationFundingReviewer
-);
-router.post(
   '/:id/review',
-  // Reviewers keep the 'researcher' role (reviewer capability via flag); controller enforces assignment.
-  authorize('researcher', 'reviewer', 'admin'),
+  authorize('admin'),
   validate(submitReviewSchema),
   publicationFundingController.submitPublicationFundingReview
 );

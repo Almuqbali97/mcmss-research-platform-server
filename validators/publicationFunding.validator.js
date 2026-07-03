@@ -28,10 +28,6 @@ export const updatePublicationFundingSchema = Joi.object({
   sections: sectionsSchema,
 }).min(1);
 
-export const assignReviewerSchema = Joi.object({
-  reviewerId: Joi.string().hex().length(24).required(),
-});
-
 export const submitReviewSchema = Joi.object({
   status: Joi.string().valid('approved', 'rejected', 'revisions_required').required(),
   comments: Joi.string().allow(''),

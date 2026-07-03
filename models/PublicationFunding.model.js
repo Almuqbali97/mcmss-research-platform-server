@@ -40,15 +40,6 @@ const publicationFundingSchema = new mongoose.Schema(
     submittedDate: {
       type: Date,
     },
-    assignedReviewer: {
-      type: String,
-      default: null,
-    },
-    assignedReviewerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Reviewer',
-      default: null,
-    },
     reviewStatus: {
       type: String,
       enum: ['pending', 'approved', 'rejected', 'revisions_required'],
@@ -75,7 +66,6 @@ const publicationFundingSchema = new mongoose.Schema(
 
 publicationFundingSchema.index({ submittedBy: 1 });
 publicationFundingSchema.index({ status: 1 });
-publicationFundingSchema.index({ assignedReviewerId: 1 });
 publicationFundingSchema.index({ applicationId: 1 });
 
 const PublicationFunding = mongoose.model('PublicationFunding', publicationFundingSchema);
