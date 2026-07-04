@@ -37,7 +37,7 @@ const RESEARCHER_EDITABLE_STATUSES = ['draft', ...REVISION_STATUSES];
 const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', ...REVISION_STATUSES];
 
 const FIRST_REVISION_DAYS = 30;
-const SECOND_REVISION_DAYS = { '1_week': 7, '2_weeks': 14 };
+const SECOND_REVISION_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const uploadsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
@@ -399,6 +399,13 @@ export const assignReviewer = async (req, res, next) => {
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
+    // Notify the reviewer of the assignment. Non-blocking: email failure must not fail the request.
+    if (reviewer.email) {
+      sendReviewAssignedEmail(reviewer.email, reviewer.name, submission.researchTitle || 'Untitled Research').catch(
+        (err) => console.error('Review assignment notification failed:', err.message)
+      );
+    }
+
     return successResponse(res, updated, 'Reviewer assigned.');
   } catch (error) {
     next(error);
@@ -432,30 +439,44 @@ export const submitReview = async (req, res, next) => {
     submission.status = status;
     submission.reviewComments = comments || '';
 
+    let revisionInfo = null;
     if (REVISION_STATUSES.includes(status)) {
       // Start (or advance) the revision cycle and set the resubmission deadline.
+      // First revision: 30 days. Any subsequent revision: 7 days.
       const round = (submission.revision?.round || 0) + 1;
       const now = new Date();
-      let days;
-      if (round === 1) {
-        days = FIRST_REVISION_DAYS;
-      } else {
-        const option = req.body.revisionDeadlineOption;
-        days = SECOND_REVISION_DAYS[option] ?? SECOND_REVISION_DAYS['2_weeks'];
-      }
+      const days = round === 1 ? FIRST_REVISION_DAYS : SECOND_REVISION_DAYS;
+      const deadline = new Date(now.getTime() + days * DAY_MS);
       submission.revision = {
         round,
         startedAt: now,
-        deadline: new Date(now.getTime() + days * DAY_MS),
+        deadline,
         firstReminderSent: false,
         finalReminderSent: false,
       };
+      revisionInfo = { days, deadline };
     } else {
       // Approved / rejected: no pending deadline.
       if (submission.revision) {
         submission.revision.deadline = null;
         submission.revision.startedAt = null;
       }
+    }
+
+    // Record this decision's comment in the dated history so previous rounds stay
+    // visible. Only log when the reviewer actually wrote something.
+    if (comments && comments.trim()) {
+      const author =
+        reviewer?.name ||
+        `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+        (isAdmin ? 'Administrator' : 'Reviewer');
+      submission.reviewCommentHistory.push({
+        comment: comments.trim(),
+        decision: status,
+        round: submission.revision?.round || 0,
+        author,
+        createdAt: new Date(),
+      });
     }
 
     await submission.save();
@@ -477,13 +498,14 @@ export const submitReview = async (req, res, next) => {
             piEmail
           );
         } else {
-          // Revision outcomes: generic status update with the reviewer's comments in the platform.
+          // Revision outcomes: status update stating the resubmission deadline.
           await sendSubmissionStatusEmail(
             submission.submittedBy.email,
             submitterName,
             submission.researchTitle,
             submission.status,
-            piEmail
+            piEmail,
+            revisionInfo
           );
         }
       } catch (emailErr) {
@@ -607,7 +629,8 @@ export const supervisorDecision = async (req, res) => {
           submission.submittedBy.name,
           submission.researchTitle,
           decision,
-          submission.supervisorApproval.email
+          submission.supervisorApproval.email,
+          submission.submissionId
         );
       } catch (mailErr) {
         console.error('Supervisor decision notice failed:', mailErr.message);
@@ -667,7 +690,8 @@ export const piDeclarationDecision = async (req, res) => {
           submitterName,
           submission.researchTitle,
           decision,
-          submission.piDeclarationApproval.email
+          submission.piDeclarationApproval.email,
+          submission.submissionId
         );
       } catch (mailErr) {
         console.error('PI declaration decision notice failed:', mailErr.message);
@@ -720,7 +744,8 @@ export const adminSetPiDeclaration = async (req, res, next) => {
           submitterName,
           submission.researchTitle,
           decision,
-          piEmail
+          piEmail,
+          submission.submissionId
         );
       } catch (mailErr) {
         console.error('PI declaration decision notice failed:', mailErr.message);

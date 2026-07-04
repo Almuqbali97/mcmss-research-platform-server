@@ -55,6 +55,18 @@ const submissionSchema = new mongoose.Schema(
     reviewComments: {
       type: String,
     },
+    // Append-only log of reviewer decisions. Each entry keeps the comment with the
+    // date, the decision it accompanied, and the revision round, so the reviewer,
+    // admin, and submitter can read the full history across revision cycles.
+    reviewCommentHistory: [
+      {
+        comment: { type: String, default: '' },
+        decision: { type: String, default: null },
+        round: { type: Number, default: 0 },
+        author: { type: String, default: null },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
     supervisorApproval: {
       email: { type: String, default: null },
       token: { type: String, default: null, select: false },

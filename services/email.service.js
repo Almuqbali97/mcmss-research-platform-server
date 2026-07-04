@@ -174,21 +174,27 @@ const templates = {
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
     `,
   }),
-  reviewAssigned: (reviewerName, submissionTitle, appName) => ({
+  reviewAssigned: (reviewerName, submissionTitle, platformUrl, appName) => ({
     subject: `New Review Assignment - ${appName}`,
     content: `
       <p style="margin: 0 0 16px;">Dear ${reviewerName},</p>
       <p style="margin: 0 0 16px;">You have been assigned to review the following research submission:</p>
       <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid #2980b9; border-radius: 4px;"><strong>${submissionTitle}</strong></p>
       <p style="margin: 0 0 16px;">Please log in to the platform to access and complete your review.</p>
+      <p style="margin: 24px 0;"><a href="${platformUrl}" style="display: inline-block; padding: 12px 24px; background-color: #2980b9; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Open Platform</a></p>
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
     `,
   }),
-  submissionStatusUpdate: (name, submissionTitle, status, appName) => ({
+  submissionStatusUpdate: (name, submissionTitle, status, appName, revisionInfo) => ({
     subject: `Submission Status Update - ${appName}`,
     content: `
       <p style="margin: 0 0 16px;">Dear ${name},</p>
       <p style="margin: 0 0 16px;">The status of your submission "<strong>${submissionTitle}</strong>" has been updated to: <strong>${REVIEW_STATUS_LABELS[status] || status.replace(/_/g, ' ')}</strong>.</p>
+      ${
+        revisionInfo
+          ? `<p style="margin: 16px 0; padding: 16px; background-color: #fff8e1; border-left: 4px solid #f39c12; border-radius: 4px;">You have <strong>${revisionInfo.days} days</strong> to revise and resubmit your application. The deadline is <strong>${escapeHtml(revisionInfo.deadlineStr)}</strong>. If the revised submission is not received before the deadline, the application will be automatically closed.</p>`
+          : ''
+      }
       <p style="margin: 0 0 16px;">Please log in to the platform to view the full details.</p>
       <p style="margin: 24px 0 0;">${COMMITTEE_SIGNATURE}</p>
     `,
@@ -228,15 +234,26 @@ const templates = {
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
     `,
   }),
-  supervisorDecisionNotice: (recipientName, title, decision, supervisorEmail, appName) => ({
-    subject: `Supervisor ${decision === 'approved' ? 'Approved' : 'Rejected'} Your Submission - ${appName}`,
-    content: `
+  supervisorDecisionNotice: (recipientName, title, decision, supervisorEmail, appName, proposalNo) => {
+    const proposalRef = proposalNo ? ` [Proposal No. ${escapeHtml(proposalNo)}]` : '';
+    return {
+      subject: `Supervisor ${decision === 'approved' ? 'Approved' : 'Rejected'} Your Submission - ${appName}`,
+      content:
+        decision === 'approved'
+          ? `
       <p style="margin: 0 0 16px;">Dear ${escapeHtml(recipientName || 'Researcher')},</p>
-      <p style="margin: 0 0 16px;">Your supervisor (${escapeHtml(supervisorEmail || '')}) has <strong>${decision === 'approved' ? 'approved' : 'rejected'}</strong> the submission:</p>
-      <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid ${decision === 'approved' ? '#27ae60' : '#c0392b'}; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
-      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+      <p style="margin: 0 0 16px;">This is to confirm that the supervisor has approved the submission of the research proposal &ldquo;<strong>${escapeHtml(title || 'Untitled')}</strong>&rdquo;${proposalRef}.</p>
+      <p style="margin: 0 0 16px;">Please proceed accordingly and do not hesitate to reach out should you require any further information.</p>
+      <p style="margin: 24px 0 0;">${COMMITTEE_SIGNATURE}</p>
+    `
+          : `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(recipientName || 'Researcher')},</p>
+      <p style="margin: 0 0 16px;">This is to inform you that the supervisor has not approved the submission of the research proposal &ldquo;<strong>${escapeHtml(title || 'Untitled')}</strong>&rdquo;${proposalRef}.</p>
+      <p style="margin: 0 0 16px;">Please do not hesitate to reach out should you require any further information.</p>
+      <p style="margin: 24px 0 0;">${COMMITTEE_SIGNATURE}</p>
     `,
-  }),
+    };
+  },
   piDeclarationApprovalRequest: (piName, submitterName, title, approveUrl, rejectUrl, appName) => ({
     subject: `Research Declaration Approval Requested - ${appName}`,
     content: `
@@ -258,16 +275,26 @@ const templates = {
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
     `,
   }),
-  piDeclarationDecisionNotice: (recipientName, title, decision, piEmail, appName) => ({
-    subject: `Principal Investigator ${decision === 'approved' ? 'Approved' : 'Disapproved'} the Declaration - ${appName}`,
-    content: `
+  piDeclarationDecisionNotice: (recipientName, title, decision, piEmail, appName, proposalNo) => {
+    const proposalRef = proposalNo ? ` [Proposal No. ${escapeHtml(proposalNo)}]` : '';
+    return {
+      subject: `Principal Investigator ${decision === 'approved' ? 'Approved' : 'Disapproved'} the Declaration - ${appName}`,
+      content:
+        decision === 'approved'
+          ? `
       <p style="margin: 0 0 16px;">Dear ${escapeHtml(recipientName || 'Researcher')},</p>
-      <p style="margin: 0 0 16px;">The Principal Investigator (${escapeHtml(piEmail || '')}) has <strong>${decision === 'approved' ? 'approved' : 'disapproved'}</strong> the Declaration of Investigator for the submission:</p>
-      <p style="margin: 16px 0; padding: 16px; background-color: #f8f9fa; border-left: 4px solid ${decision === 'approved' ? '#27ae60' : '#c0392b'}; border-radius: 4px;"><strong>${escapeHtml(title || 'Untitled')}</strong></p>
-      ${decision === 'approved' ? '<p style="margin: 0 0 16px;">The submission can now proceed to review.</p>' : ''}
-      <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
+      <p style="margin: 0 0 16px;">This is to confirm that the principal investigator has approved the submission of the research proposal &ldquo;<strong>${escapeHtml(title || 'Untitled')}</strong>&rdquo;${proposalRef}.</p>
+      <p style="margin: 0 0 16px;">Please proceed accordingly and do not hesitate to reach out should you require any further information.</p>
+      <p style="margin: 24px 0 0;">${COMMITTEE_SIGNATURE}</p>
+    `
+          : `
+      <p style="margin: 0 0 16px;">Dear ${escapeHtml(recipientName || 'Researcher')},</p>
+      <p style="margin: 0 0 16px;">This is to inform you that the principal investigator has not approved the submission of the research proposal &ldquo;<strong>${escapeHtml(title || 'Untitled')}</strong>&rdquo;${proposalRef}.</p>
+      <p style="margin: 0 0 16px;">Please do not hesitate to reach out should you require any further information.</p>
+      <p style="margin: 24px 0 0;">${COMMITTEE_SIGNATURE}</p>
     `,
-  }),
+    };
+  },
   submissionAcknowledgment: (recipientName, title, receivedDateStr) => {
     const safeTitle = escapeHtml(title);
     return {
@@ -361,12 +388,16 @@ export const sendOTPEmail = async (email, name, otp, purpose = 'Verification', e
 };
 
 export const sendReviewAssignedEmail = async (reviewerEmail, reviewerName, submissionTitle) => {
-  const { subject, content } = templates.reviewAssigned(reviewerName, submissionTitle, BRANDING.appName);
+  const platformUrl = `${config.app.frontendUrl}/dashboard`;
+  const { subject, content } = templates.reviewAssigned(reviewerName, submissionTitle, platformUrl, BRANDING.appName);
   return sendEmail({ to: reviewerEmail, subject, html: getEmailLayout(content) });
 };
 
-export const sendSubmissionStatusEmail = async (email, name, submissionTitle, status, piEmailRaw) => {
-  const { subject, content } = templates.submissionStatusUpdate(name, submissionTitle, status, BRANDING.appName);
+export const sendSubmissionStatusEmail = async (email, name, submissionTitle, status, piEmailRaw, revisionInfo = null) => {
+  const revisionForEmail = revisionInfo
+    ? { days: revisionInfo.days, deadlineStr: formatSubmissionReceivedDate(revisionInfo.deadline) }
+    : null;
+  const { subject, content } = templates.submissionStatusUpdate(name, submissionTitle, status, BRANDING.appName, revisionForEmail);
   const piEmail = typeof piEmailRaw === 'string' ? piEmailRaw.trim().toLowerCase() : '';
   const submitterLower = typeof email === 'string' ? email.trim().toLowerCase() : '';
   const cc =
@@ -396,14 +427,15 @@ export const sendSupervisorApprovalEmail = async (
 };
 
 /* Notifies the submitter of the supervisor's decision. */
-export const sendSupervisorDecisionEmail = async (email, name, title, decision, supervisorEmail) => {
+export const sendSupervisorDecisionEmail = async (email, name, title, decision, supervisorEmail, proposalNo) => {
   if (!email) return { sent: false, messageId: null };
   const { subject, content } = templates.supervisorDecisionNotice(
     name,
     title,
     decision,
     supervisorEmail,
-    BRANDING.appName
+    BRANDING.appName,
+    proposalNo
   );
   return sendEmail({ to: email, subject, html: getEmailLayout(content) });
 };
@@ -429,14 +461,15 @@ export const sendPiDeclarationApprovalEmail = async (
 };
 
 /* Notifies the submitter of the Principal Investigator's declaration decision. */
-export const sendPiDeclarationDecisionEmail = async (email, name, title, decision, piEmail) => {
+export const sendPiDeclarationDecisionEmail = async (email, name, title, decision, piEmail, proposalNo) => {
   if (!email) return { sent: false, messageId: null };
   const { subject, content } = templates.piDeclarationDecisionNotice(
     name,
     title,
     decision,
     piEmail,
-    BRANDING.appName
+    BRANDING.appName,
+    proposalNo
   );
   return sendEmail({ to: email, subject, html: getEmailLayout(content) });
 };
