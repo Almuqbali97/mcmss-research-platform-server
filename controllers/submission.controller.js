@@ -85,6 +85,10 @@ const canAccessSubmission = async (submission, user) => {
   return false;
 };
 
+const canResearcherEdit = (submission) =>
+  RESEARCHER_EDITABLE_STATUSES.includes(submission.status) ||
+  (submission.status === 'under_review' && !submission.adminViewedAt);
+
 export const getSubmissions = async (req, res, next) => {
   try {
     const { status } = req.query;
@@ -105,6 +109,22 @@ export const getSubmissions = async (req, res, next) => {
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization')
       .sort({ createdAt: -1 });
+
+    if (user.role === 'admin') {
+      const unseen = submissions.filter(
+        (submission) => submission.status === 'under_review' && !submission.adminViewedAt
+      );
+      if (unseen.length > 0) {
+        const viewedAt = new Date();
+        await Submission.updateMany(
+          { _id: { $in: unseen.map((submission) => submission._id) }, adminViewedAt: null },
+          { $set: { adminViewedAt: viewedAt } }
+        );
+        unseen.forEach((submission) => {
+          submission.adminViewedAt = viewedAt;
+        });
+      }
+    }
 
     return successResponse(res, submissions);
   } catch (error) {
@@ -155,6 +175,12 @@ export const getSubmission = async (req, res, next) => {
       if (!isSubmitter && !assignedToUser) {
         return errorResponse(res, 'Access denied.', 403);
       }
+    } else if (submission.status === 'under_review' && !submission.adminViewedAt) {
+      submission.adminViewedAt = new Date();
+      await Submission.updateOne(
+        { _id: submission._id, adminViewedAt: null },
+        { $set: { adminViewedAt: submission.adminViewedAt } }
+      );
     }
 
     return successResponse(res, submission);
@@ -199,14 +225,18 @@ export const updateSubmission = async (req, res, next) => {
       if (!submission.submittedBy.equals(user._id)) {
         return errorResponse(res, 'Access denied.', 403);
       }
-      if (!RESEARCHER_EDITABLE_STATUSES.includes(submission.status)) {
-        return errorResponse(res, 'Only draft or revision-required submissions can be edited.', 400);
+      if (!canResearcherEdit(submission)) {
+        return errorResponse(res, 'This submission can no longer be edited because an admin has viewed it.', 400);
       }
     } else if (user.role !== 'admin') {
       return errorResponse(res, 'Access denied.', 403);
     }
 
-    Object.assign(submission, req.body);
+    const updates = { ...req.body };
+    if (user.role === 'researcher' && submission.status === 'under_review') {
+      delete updates.status;
+    }
+    Object.assign(submission, updates);
     await submission.save();
 
     const updated = await Submission.findById(id)
@@ -266,6 +296,7 @@ export const submitForReview = async (req, res, next) => {
 
     submission.status = 'under_review';
     submission.submittedDate = new Date();
+    submission.adminViewedAt = null;
     submission.reviewStatus = 'pending';
     if (submission.reviewComments) {
       submission.reviewComments = '';

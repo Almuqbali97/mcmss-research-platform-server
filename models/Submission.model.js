@@ -38,6 +38,11 @@ const submissionSchema = new mongoose.Schema(
     submittedDate: {
       type: Date,
     },
+    // Submitters may edit an under-review form until it first appears in an admin's panel.
+    adminViewedAt: {
+      type: Date,
+      default: null,
+    },
     assignedReviewer: {
       type: String,
       default: null,

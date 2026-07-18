@@ -45,7 +45,24 @@ export const submitReviewSchema = Joi.object({
 
 export const fieldCommentsSchema = Joi.object({
   fieldComments: Joi.object().pattern(
-    Joi.string().valid('introduction', 'objectives', 'targetPopulation', 'methodology', 'statisticalAnalysis', 'intervention', 'expectedOutcomes', 'references'),
+    Joi.string().valid(
+      'introduction',
+      'rationaleForStudy',
+      'studyDesignSettingDuration',
+      'objectives',
+      'studyPopulationAndSampling',
+      'sampleSize',
+      'variables',
+      'intervention',
+      'statisticalAnalysis',
+      'informedConsentProcess',
+      'expectedOutcomes',
+      'additionalComments',
+      'references',
+      // Legacy keys remain accepted so comments on older submissions are not lost.
+      'targetPopulation',
+      'methodology'
+    ),
     Joi.string().allow('')
   ).required(),
 });

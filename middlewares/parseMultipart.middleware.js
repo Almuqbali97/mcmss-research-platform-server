@@ -14,9 +14,6 @@ export const parseMultipartSubmission = (req, res, next) => {
       'consentFormFiles',
       'grantDocuments',
       'ethicsApprovalDocuments',
-      'sampleSizeFiles',
-      'dataVariablesFiles',
-      'researchProposalFiles',
       'bloodTissueAbroadDocuments',
     ];
 
