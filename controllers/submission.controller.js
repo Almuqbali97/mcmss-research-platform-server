@@ -6,7 +6,7 @@ import Submission from '../models/Submission.model.js';
 import Reviewer from '../models/Reviewer.model.js';
 import { config } from '../config/index.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
-import { generateSubmissionId } from '../utils/generateSubmissionId.js';
+import { getNextSubmissionId } from '../services/submissionId.service.js';
 import {
   sendReviewAssignedEmail,
   sendSubmissionStatusEmail,
@@ -170,9 +170,7 @@ export const getSubmission = async (req, res, next) => {
 export const createSubmission = async (req, res, next) => {
   try {
     const user = req.user;
-    const count = await Submission.countDocuments();
-    const numericId = count + 1;
-    const submissionId = generateSubmissionId(numericId);
+    const submissionId = await getNextSubmissionId();
 
     const submission = await Submission.create({
       ...req.body,
