@@ -20,6 +20,7 @@ export const processRevisionDeadlines = async () => {
   const now = new Date();
   try {
     const submissions = await Submission.find({
+      deletedAt: null,
       status: { $in: REVISION_STATUSES },
       'revision.deadline': { $ne: null },
     }).populate('submittedBy', 'firstName lastName email');
