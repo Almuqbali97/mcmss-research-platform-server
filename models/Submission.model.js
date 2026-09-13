@@ -43,6 +43,21 @@ const submissionSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Admin deletions are retained for 30 days before the cleanup service removes them.
+    // Normal submission queries explicitly exclude records with deletedAt set.
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deleteAfter: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
     assignedReviewer: {
       type: String,
       default: null,
@@ -133,6 +148,7 @@ submissionSchema.index({ submittedBy: 1 });
 submissionSchema.index({ status: 1 });
 submissionSchema.index({ assignedReviewerId: 1 });
 submissionSchema.index({ submissionId: 1 });
+submissionSchema.index({ deletedAt: 1, deleteAfter: 1 });
 
 const Submission = mongoose.model('Submission', submissionSchema);
 export default Submission;

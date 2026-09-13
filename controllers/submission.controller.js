@@ -6,7 +6,7 @@ import Submission from '../models/Submission.model.js';
 import Reviewer from '../models/Reviewer.model.js';
 import { config } from '../config/index.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
-import { generateSubmissionId } from '../utils/generateSubmissionId.js';
+import { getNextSubmissionId } from '../services/submissionId.service.js';
 import {
   sendReviewAssignedEmail,
   sendSubmissionStatusEmail,
@@ -19,6 +19,7 @@ import {
   sendRejectionNoticeEmail,
 } from '../services/email.service.js';
 import { notifyAdminOfSubmission } from '../services/notification.service.js';
+import { permanentlyDeleteSubmission as permanentlyDeleteSubmissionRecord } from '../services/submissionDeletion.service.js';
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
@@ -39,9 +40,12 @@ const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', ...REVISION_STATUSES];
 const FIRST_REVISION_DAYS = 30;
 const SECOND_REVISION_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DELETION_RETENTION_DAYS = 30;
+const ACTIVE_SUBMISSION = { deletedAt: null };
 
 const uploadsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
 
+<<<<<<< HEAD
 const SUBMISSION_FILE_FIELDS = [
   'informationSheetFiles',
   'consentFormFiles',
@@ -76,6 +80,8 @@ const removeSubmissionFiles = (formData) => {
   }
 };
 
+=======
+>>>>>>> 504e9c21272bf5d51a29cb47902a6e9af61818a1
 const isAssignedReviewer = (assignedReviewerId, reviewerId) => {
   if (!assignedReviewerId || !reviewerId) return false;
   const assignedId = assignedReviewerId._id || assignedReviewerId;
@@ -102,7 +108,7 @@ export const getSubmissions = async (req, res, next) => {
   try {
     const { status, markViewed } = req.query;
     const user = req.user;
-    const query = {};
+    const query = { ...ACTIVE_SUBMISSION };
 
     if (user.role === 'admin') {
       // Admin sees all
@@ -150,7 +156,7 @@ export const getAssignedSubmissions = async (req, res, next) => {
       return successResponse(res, []);
     }
 
-    const submissions = await Submission.find({ assignedReviewerId: reviewer._id })
+    const submissions = await Submission.find({ ...ACTIVE_SUBMISSION, assignedReviewerId: reviewer._id })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization')
       .sort({ createdAt: -1 });
@@ -166,7 +172,7 @@ export const getSubmission = async (req, res, next) => {
     const { id } = req.params;
     const user = req.user;
 
-    const submission = await Submission.findById(id)
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
@@ -201,9 +207,7 @@ export const getSubmission = async (req, res, next) => {
 export const createSubmission = async (req, res, next) => {
   try {
     const user = req.user;
-    const count = await Submission.countDocuments();
-    const numericId = count + 1;
-    const submissionId = generateSubmissionId(numericId);
+    const submissionId = await getNextSubmissionId();
 
     const submission = await Submission.create({
       ...req.body,
@@ -212,7 +216,7 @@ export const createSubmission = async (req, res, next) => {
       principalInvestigator: req.body.principalInvestigator || `${user.firstName || ''} ${user.lastName || ''}`.trim(),
     });
 
-    const populated = await Submission.findById(submission._id)
+    const populated = await Submission.findOne({ _id: submission._id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
@@ -227,7 +231,7 @@ export const updateSubmission = async (req, res, next) => {
     const { id } = req.params;
     const user = req.user;
 
-    const submission = await Submission.findById(id);
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION });
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
 
     if (user.role === 'researcher') {
@@ -248,7 +252,7 @@ export const updateSubmission = async (req, res, next) => {
     Object.assign(submission, updates);
     await submission.save();
 
-    const updated = await Submission.findById(id)
+    const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
@@ -263,25 +267,53 @@ export const deleteSubmission = async (req, res, next) => {
     const { id } = req.params;
     const user = req.user;
 
-    const submission = await Submission.findById(id);
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION });
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
 
-    if (user.role === 'researcher') {
-      if (!submission.submittedBy.equals(user._id)) {
-        return errorResponse(res, 'Access denied.', 403);
-      }
-    } else if (user.role !== 'admin') {
+    if (user.role !== 'admin') {
       return errorResponse(res, 'Access denied.', 403);
     }
 
-    if (submission.status !== 'draft') {
-      return errorResponse(res, 'Only draft submissions can be deleted.', 400);
-    }
+    const deletedAt = new Date();
+    submission.deletedAt = deletedAt;
+    submission.deleteAfter = new Date(deletedAt.getTime() + DELETION_RETENTION_DAYS * DAY_MS);
+    submission.deletedBy = user._id;
+    await submission.save();
 
-    removeSubmissionFiles(submission.formData);
-    await submission.deleteOne();
+    return successResponse(
+      res,
+      { id, deletedAt: submission.deletedAt, deleteAfter: submission.deleteAfter },
+      'Submission moved to Recently Deleted.'
+    );
+  } catch (error) {
+    next(error);
+  }
+};
 
-    return successResponse(res, { id }, 'Draft deleted.');
+export const getRecentlyDeletedSubmissions = async (req, res, next) => {
+  try {
+    const submissions = await Submission.find({
+      deletedAt: { $ne: null },
+      deleteAfter: { $gt: new Date() },
+    })
+      .populate('submittedBy', 'firstName lastName email')
+      .populate('deletedBy', 'firstName lastName email')
+      .sort({ deletedAt: -1 });
+
+    return successResponse(res, submissions);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const permanentlyDeleteSubmission = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const submission = await Submission.findOne({ _id: id, deletedAt: { $ne: null } });
+    if (!submission) return errorResponse(res, 'Deleted submission not found.', 404);
+
+    await permanentlyDeleteSubmissionRecord(submission);
+    return successResponse(res, { id }, 'Submission permanently deleted.');
   } catch (error) {
     next(error);
   }
@@ -292,7 +324,7 @@ export const submitForReview = async (req, res, next) => {
     const { id } = req.params;
     const user = req.user;
 
-    const submission = await Submission.findById(id).populate('submittedBy', 'firstName lastName email');
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION }).populate('submittedBy', 'firstName lastName email');
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
 
     if (!submission.submittedBy._id.equals(user._id)) {
@@ -405,7 +437,7 @@ export const submitForReview = async (req, res, next) => {
       }
     }
 
-    const updated = await Submission.findById(id)
+    const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
@@ -420,7 +452,7 @@ export const assignReviewer = async (req, res, next) => {
     const { id } = req.params;
     const { reviewerId } = req.body;
 
-    const submission = await Submission.findById(id)
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email');
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
@@ -435,7 +467,7 @@ export const assignReviewer = async (req, res, next) => {
     submission.reviewStatus = 'pending';
     await submission.save();
 
-    const updated = await Submission.findById(id)
+    const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
@@ -458,7 +490,7 @@ export const submitReview = async (req, res, next) => {
     const { status, comments } = req.body;
     const user = req.user;
 
-    const submission = await Submission.findById(id)
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email');
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
@@ -553,7 +585,7 @@ export const submitReview = async (req, res, next) => {
       }
     }
 
-    const updated = await Submission.findById(id)
+    const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
@@ -569,7 +601,7 @@ export const updateFieldComments = async (req, res, next) => {
     const { fieldComments } = req.body;
     const user = req.user;
 
-    const submission = await Submission.findById(id)
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
@@ -585,7 +617,7 @@ export const updateFieldComments = async (req, res, next) => {
     submission.fieldComments = fieldComments || {};
     await submission.save();
 
-    const updated = await Submission.findById(id)
+    const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
@@ -600,7 +632,7 @@ export const uploadApprovalCertificate = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const submission = await Submission.findById(id);
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION });
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
     if (submission.status !== 'approved') {
       return errorResponse(res, 'The approval certificate can only be uploaded once the submission is approved.', 400);
@@ -622,7 +654,7 @@ export const uploadApprovalCertificate = async (req, res, next) => {
     };
     await submission.save();
 
-    const updated = await Submission.findById(id)
+    const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
@@ -643,7 +675,10 @@ export const supervisorDecision = async (req, res) => {
       return res.status(400).send(decisionPage('Invalid Request', 'The approval link is malformed.', false));
     }
 
-    const submission = await Submission.findOne({ 'supervisorApproval.token': token })
+    const submission = await Submission.findOne({
+      'supervisorApproval.token': token,
+      ...ACTIVE_SUBMISSION,
+    })
       .select('+supervisorApproval.token')
       .populate('submittedBy', 'firstName lastName email');
 
@@ -701,7 +736,10 @@ export const piDeclarationDecision = async (req, res) => {
       return res.status(400).send(decisionPage('Invalid Request', 'The approval link is malformed.', false));
     }
 
-    const submission = await Submission.findOne({ 'piDeclarationApproval.token': token })
+    const submission = await Submission.findOne({
+      'piDeclarationApproval.token': token,
+      ...ACTIVE_SUBMISSION,
+    })
       .select('+piDeclarationApproval.token')
       .populate('submittedBy', 'firstName lastName email');
 
@@ -762,7 +800,7 @@ export const adminSetPiDeclaration = async (req, res, next) => {
       return errorResponse(res, 'Decision must be "approve" or "reject".', 400);
     }
 
-    const submission = await Submission.findById(id).populate('submittedBy', 'firstName lastName email');
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION }).populate('submittedBy', 'firstName lastName email');
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
 
     const piEmail = submission.piDeclarationApproval?.email || submission.formData?.principalInvestigator?.email || null;
@@ -792,7 +830,7 @@ export const adminSetPiDeclaration = async (req, res, next) => {
       }
     }
 
-    const updated = await Submission.findById(id)
+    const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
@@ -807,7 +845,7 @@ export const exportSubmission = async (req, res, next) => {
     const { id } = req.params;
     const user = req.user;
 
-    const submission = await Submission.findById(id)
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 

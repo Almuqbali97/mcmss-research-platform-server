@@ -35,10 +35,12 @@ router.use(authenticate);
 
 router.get('/', submissionController.getSubmissions);
 router.get('/assigned', submissionController.getAssignedSubmissions);
+router.get('/recently-deleted', authorize('admin'), submissionController.getRecentlyDeletedSubmissions);
+router.delete('/recently-deleted/:id', authorize('admin'), submissionController.permanentlyDeleteSubmission);
 router.get('/:id', submissionController.getSubmission);
 router.post('/', authorize('researcher', 'admin'), maybeMultipart, validate(createSubmissionSchema), submissionController.createSubmission);
 router.put('/:id', authorize('researcher', 'admin'), maybeMultipart, validate(updateSubmissionSchema), submissionController.updateSubmission);
-router.delete('/:id', authorize('researcher', 'admin'), submissionController.deleteSubmission);
+router.delete('/:id', authorize('admin'), submissionController.deleteSubmission);
 router.post('/:id/submit', authorize('researcher', 'admin'), submissionController.submitForReview);
 router.post('/:id/assign-reviewer', authorize('admin'), validate(assignReviewerSchema), submissionController.assignReviewer);
 router.post('/:id/pi-declaration', authorize('admin'), submissionController.adminSetPiDeclaration);
