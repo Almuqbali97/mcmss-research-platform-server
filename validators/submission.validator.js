@@ -14,6 +14,7 @@ export const createSubmissionSchema = Joi.object({
     section5: Joi.boolean(),
     section6: Joi.boolean(),
     section7: Joi.boolean(),
+    section8: Joi.boolean(),
   }),
 });
 
@@ -31,6 +32,7 @@ export const updateSubmissionSchema = Joi.object({
     section5: Joi.boolean(),
     section6: Joi.boolean(),
     section7: Joi.boolean(),
+    section8: Joi.boolean(),
   }),
 }).min(1);
 

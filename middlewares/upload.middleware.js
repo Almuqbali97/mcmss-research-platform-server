@@ -42,6 +42,8 @@ export const submissionUpload = multer({
   { name: 'grantDocuments', maxCount: 5 },
   { name: 'ethicsApprovalDocuments', maxCount: 5 },
   { name: 'bloodTissueAbroadDocuments', maxCount: 5 },
+  { name: 'documentUploadEnglish', maxCount: 50 },
+  { name: 'documentUploadArabic', maxCount: 50 },
 ]);
 
 // Admin-only upload of the approval certificate (letter of approval). PDF only.

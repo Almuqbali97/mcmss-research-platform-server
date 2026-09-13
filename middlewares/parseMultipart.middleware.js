@@ -29,6 +29,30 @@ export const parseMultipartSubmission = (req, res, next) => {
       }
     }
 
+    if (Array.isArray(formData.documentUploads)) {
+      for (const language of ['english', 'arabic']) {
+        const documentField = `${language}Files`;
+        const uploadField = `documentUpload${language[0].toUpperCase()}${language.slice(1)}`;
+        const pendingFileField = `${language}HasNewFile`;
+        let fileIndex = 0;
+        formData.documentUploads = formData.documentUploads.map((document) => {
+          const existing = Array.isArray(document[documentField])
+            ? document[documentField].filter((file) => file && typeof file === 'object' && file.path)
+            : [];
+          if (!document[pendingFileField]) {
+            const { [pendingFileField]: _, ...documentWithoutPendingFile } = document;
+            return { ...documentWithoutPendingFile, [documentField]: existing };
+          }
+          const uploadedFile = req.files?.[uploadField]?.[fileIndex++];
+          const newRef = uploadedFile
+            ? { filename: uploadedFile.filename, originalName: uploadedFile.originalname, path: `/api/uploads/${uploadedFile.filename}` }
+            : null;
+          const { [pendingFileField]: _, ...documentWithoutPendingFile } = document;
+          return { ...documentWithoutPendingFile, [documentField]: newRef ? [...existing, newRef] : existing };
+        });
+      }
+    }
+
     req.body.formData = formData;
     delete req.body.formDataJson;
   } catch (err) {

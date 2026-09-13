@@ -65,6 +65,15 @@ const removeSubmissionFiles = (formData) => {
       fs.promises.unlink(filePath).catch(() => {});
     }
   }
+  for (const document of formData.documentUploads || []) {
+    for (const field of ['englishFiles', 'arabicFiles']) {
+      for (const ref of document[field] || []) {
+        if (!ref?.filename) continue;
+        const filePath = path.join(uploadsDir, path.basename(ref.filename));
+        fs.promises.unlink(filePath).catch(() => {});
+      }
+    }
+  }
 };
 
 const isAssignedReviewer = (assignedReviewerId, reviewerId) => {
@@ -91,7 +100,7 @@ const canResearcherEdit = (submission) =>
 
 export const getSubmissions = async (req, res, next) => {
   try {
-    const { status } = req.query;
+    const { status, markViewed } = req.query;
     const user = req.user;
     const query = {};
 
@@ -110,7 +119,7 @@ export const getSubmissions = async (req, res, next) => {
       .populate('assignedReviewerId', 'name email specialization')
       .sort({ createdAt: -1 });
 
-    if (user.role === 'admin') {
+    if (user.role === 'admin' && markViewed === 'true') {
       const unseen = submissions.filter(
         (submission) => submission.status === 'under_review' && !submission.adminViewedAt
       );

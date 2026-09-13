@@ -4,7 +4,7 @@ import { config } from '../config/index.js';
 const logoUrl = config.app.logoUrl || `${config.app.frontendUrl}/src/assets/logo.png`;
 
 const BRANDING = {
-  appName: 'Medical Research and Studies Committee',
+  appName: 'Medical Research Ethics Committee',
   orgName: 'Medical City for Military and Security Services',
 };
 
