@@ -39,7 +39,7 @@ export const processRevisionDeadlines = async () => {
         await sub.save();
         if (email) {
           try {
-            await sendRevisionArchivedEmail(email, name, sub.researchTitle, sub.submissionId);
+            await sendRevisionArchivedEmail(email, name, sub.researchTitle, sub.submissionId, deadline);
           } catch (err) {
             console.error('Revision archived email failed:', err.message);
           }
@@ -84,7 +84,7 @@ export const processRevisionDeadlines = async () => {
 };
 
 /* Runs the sweep now and every `intervalHours` thereafter. */
-export const startRevisionDeadlineScheduler = (intervalHours = 12) => {
+export const startRevisionDeadlineScheduler = (intervalHours = 1) => {
   processRevisionDeadlines();
   return setInterval(processRevisionDeadlines, intervalHours * 60 * 60 * 1000);
 };

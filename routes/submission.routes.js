@@ -10,6 +10,7 @@ import {
   updateSubmissionSchema,
   assignReviewerSchema,
   submitReviewSchema,
+  extendRevisionDeadlineSchema,
   fieldCommentsSchema,
 } from '../validators/submission.validator.js';
 
@@ -47,6 +48,7 @@ router.post('/:id/pi-declaration', authorize('admin'), submissionController.admi
 router.post('/:id/approval-certificate', authorize('admin'), approvalCertificateUpload, submissionController.uploadApprovalCertificate);
 // Reviewers keep the 'researcher' role (reviewer capability via flag); the controller enforces assignment.
 router.post('/:id/review', authorize('researcher', 'reviewer', 'admin'), validate(submitReviewSchema), submissionController.submitReview);
+router.patch('/:id/revision-deadline', authorize('admin'), validate(extendRevisionDeadlineSchema), submissionController.extendRevisionDeadline);
 router.patch('/:id/field-comments', authorize('researcher', 'reviewer', 'admin'), validate(fieldCommentsSchema), submissionController.updateFieldComments);
 router.get('/:id/export', submissionController.exportSubmission);
 

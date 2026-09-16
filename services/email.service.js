@@ -323,12 +323,12 @@ const templates = {
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
     `,
   }),
-  revisionArchived: (name, title, proposalNo, appName) => ({
+  revisionArchived: (name, title, proposalNo, deadlineStr, appName) => ({
     subject: `Application Closed - Revision Deadline Passed - ${appName}`,
     content: `
       <p style="margin: 0 0 16px;">Dear ${escapeHtml(name)},</p>
-      <p style="margin: 0 0 16px;">This is to inform you that more than 30 days have passed since the ethics committee requested revisions to your study titled &ldquo;<strong>${escapeHtml(title)}</strong>&rdquo;${proposalNo ? ` [${escapeHtml(proposalNo)}]` : ''}. As we have not received the revised documents within this period, the original application is now considered closed according to our committee procedures.</p>
-      <p style="margin: 0 0 16px;">Any further submission related to this project will need to be submitted as a new application and will undergo the full ethics review process from the beginning.</p>
+      <p style="margin: 0 0 16px;">The revision deadline of <strong>${escapeHtml(deadlineStr)}</strong> for your study titled &ldquo;<strong>${escapeHtml(title)}</strong>&rdquo;${proposalNo ? ` [${escapeHtml(proposalNo)}]` : ''} has passed. As we have not received the revised documents by this deadline, the original application is now closed according to our committee procedures.</p>
+      <p style="margin: 0 0 16px;">To continue with this project, you must submit a new application. It will undergo the full ethics review process from the beginning.</p>
       <p style="margin: 0 0 16px;">If you plan to re-submit, please ensure that all required documents are updated in line with the previous reviewer comments and current guidelines. Our office will be happy to clarify any procedural questions you may have.</p>
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>Medical Research Ethics Committee</strong><br/>Medical City for Military and Security Services<br/>Muscat, Oman</p>
     `,
@@ -543,12 +543,13 @@ export const sendRevisionReminderEmail = async (email, name, title, deadline, da
 };
 
 /* Notifies the submitter their application was closed after the revision deadline passed. */
-export const sendRevisionArchivedEmail = async (email, name, title, proposalNo) => {
+export const sendRevisionArchivedEmail = async (email, name, title, proposalNo, deadline) => {
   if (!email) return { sent: false, messageId: null };
   const { subject, content } = templates.revisionArchived(
     name || 'Researcher',
     title || 'your submission',
     proposalNo || '',
+    formatSubmissionReceivedDate(deadline),
     BRANDING.appName
   );
   return sendEmail({ to: email, subject, html: getEmailLayout(content) });

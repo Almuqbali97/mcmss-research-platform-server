@@ -45,6 +45,10 @@ export const submitReviewSchema = Joi.object({
   comments: Joi.string().allow(''),
 });
 
+export const extendRevisionDeadlineSchema = Joi.object({
+  deadline: Joi.date().iso().greater('now').required(),
+});
+
 export const fieldCommentsSchema = Joi.object({
   fieldComments: Joi.object().pattern(
     Joi.string().valid(

@@ -45,7 +45,6 @@ const ACTIVE_SUBMISSION = { deletedAt: null };
 
 const uploadsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
 
-<<<<<<< HEAD
 const SUBMISSION_FILE_FIELDS = [
   'informationSheetFiles',
   'consentFormFiles',
@@ -79,9 +78,6 @@ const removeSubmissionFiles = (formData) => {
     }
   }
 };
-
-=======
->>>>>>> 504e9c21272bf5d51a29cb47902a6e9af61818a1
 const isAssignedReviewer = (assignedReviewerId, reviewerId) => {
   if (!assignedReviewerId || !reviewerId) return false;
   const assignedId = assignedReviewerId._id || assignedReviewerId;
@@ -241,6 +237,13 @@ export const updateSubmission = async (req, res, next) => {
       if (!canResearcherEdit(submission)) {
         return errorResponse(res, 'This submission can no longer be edited because an admin has viewed it.', 400);
       }
+      if (
+        REVISION_STATUSES.includes(submission.status) &&
+        submission.revision?.deadline &&
+        new Date(submission.revision.deadline) <= new Date()
+      ) {
+        return errorResponse(res, 'The revision deadline has passed. This submission will be closed and you must submit a new application.', 400);
+      }
     } else if (user.role !== 'admin') {
       return errorResponse(res, 'Access denied.', 403);
     }
@@ -333,6 +336,13 @@ export const submitForReview = async (req, res, next) => {
 
     if (!RESEARCHER_SUBMITTABLE_STATUSES.includes(submission.status)) {
       return errorResponse(res, 'Only draft or revision-required submissions can be submitted for review.', 400);
+    }
+    if (
+      REVISION_STATUSES.includes(submission.status) &&
+      submission.revision?.deadline &&
+      new Date(submission.revision.deadline) <= new Date()
+    ) {
+      return errorResponse(res, 'The revision deadline has passed. This submission will be closed and you must submit a new application.', 400);
     }
 
     submission.status = 'under_review';
@@ -590,6 +600,46 @@ export const submitReview = async (req, res, next) => {
       .populate('assignedReviewerId', 'name email specialization');
 
     return successResponse(res, updated, 'Review submitted successfully.');
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const extendRevisionDeadline = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const newDeadline = new Date(req.body.deadline);
+    const now = new Date();
+
+    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION });
+    if (!submission) return errorResponse(res, 'Submission not found.', 404);
+    if (!REVISION_STATUSES.includes(submission.status) || !submission.revision?.deadline) {
+      return errorResponse(res, 'Only submissions awaiting revisions with an active deadline can be extended.', 400);
+    }
+
+    const previousDeadline = new Date(submission.revision.deadline);
+    if (previousDeadline <= now) {
+      return errorResponse(res, 'The revision deadline has already passed. This submission must be closed and resubmitted as a new application.', 400);
+    }
+    if (Number.isNaN(newDeadline.getTime()) || newDeadline <= now || newDeadline <= previousDeadline) {
+      return errorResponse(res, 'Choose a new deadline that is later than the current deadline.', 400);
+    }
+
+    submission.revision.deadline = newDeadline;
+    submission.revision.finalReminderSent = false;
+    if (!Array.isArray(submission.revision.extensions)) submission.revision.extensions = [];
+    submission.revision.extensions.push({
+      previousDeadline,
+      newDeadline,
+      extendedAt: now,
+      extendedBy: req.user._id,
+    });
+    await submission.save();
+
+    const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
+      .populate('submittedBy', 'firstName lastName email')
+      .populate('assignedReviewerId', 'name email specialization');
+    return successResponse(res, updated, 'Revision deadline extended.');
   } catch (error) {
     next(error);
   }

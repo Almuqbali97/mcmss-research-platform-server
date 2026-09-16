@@ -8,6 +8,7 @@ const sectionSchema = new mongoose.Schema({
   section5: { type: Boolean, default: false },
   section6: { type: Boolean, default: false },
   section7: { type: Boolean, default: false },
+  section8: { type: Boolean, default: false },
 });
 
 const submissionSchema = new mongoose.Schema(
@@ -107,14 +108,22 @@ const submissionSchema = new mongoose.Schema(
       },
       decidedAt: { type: Date, default: null },
     },
-    // Tracks the revision cycle: round 1 grants 30 days, round 2+ grants a
-    // reviewer-chosen 1 or 2 weeks. Past the deadline the submission is archived.
+    // Tracks the revision cycle: round 1 grants 30 days and round 2+ grants 7 days.
+    // Past the deadline the submission is archived unless an administrator extends it.
     revision: {
       round: { type: Number, default: 0 },
       startedAt: { type: Date, default: null },
       deadline: { type: Date, default: null },
       firstReminderSent: { type: Boolean, default: false },
       finalReminderSent: { type: Boolean, default: false },
+      extensions: [
+        {
+          previousDeadline: { type: Date, required: true },
+          newDeadline: { type: Date, required: true },
+          extendedAt: { type: Date, default: Date.now },
+          extendedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        },
+      ],
     },
     fieldComments: {
       type: mongoose.Schema.Types.Mixed,
