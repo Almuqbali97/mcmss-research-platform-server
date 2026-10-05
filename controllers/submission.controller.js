@@ -54,6 +54,8 @@ export const forViewer = (submission, user) => {
     delete data.assignedReviewer;
     delete data.assignedReviewerId;
     delete data.reviewDraft;
+    delete data.reviewRelease;
+    if (data.status !== 'approved') delete data.approvalCertificate;
     data.reviewCommentHistory = (data.reviewCommentHistory || []).map(({ author, ...entry }) => entry);
   }
   return data;
@@ -367,6 +369,7 @@ export const submitForReview = async (req, res, next) => {
     submission.adminViewedAt = null;
     submission.reviewStatus = 'pending';
     submission.reviewDraft = { status: null, comments: '', fieldComments: {}, state: 'draft', issuedAt: null };
+    submission.reviewRelease = null;
     if (submission.reviewComments) {
       submission.reviewComments = '';
     }
@@ -570,17 +573,82 @@ export const issueReview = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+const REVIEW_DECISIONS = ['approved', 'rejected', ...REVISION_STATUSES];
+
+export const canRetrieveReleasedReview = (submission) => {
+  if (!submission.assignedReviewerId || !REVIEW_DECISIONS.includes(submission.status)) return false;
+  if (submission.reviewStatus !== submission.status) return false;
+  if (submission.reviewRelease) return submission.reviewRelease.releasedStatus === submission.status;
+  // Reviews released before the snapshot was introduced can still be retrieved.
+  return submission.reviewDraft?.state === 'draft' && !submission.reviewDraft?.status;
+};
+
+export const retrieveReleasedReview = (submission) => {
+  if (!canRetrieveReleasedReview(submission)) return false;
+  const releasedStatus = submission.status;
+  const release = submission.reviewRelease;
+  const comments = submission.reviewComments || '';
+  const currentRound = submission.revision?.round || 0;
+
+  if (release?.historyEntryId) {
+    submission.reviewCommentHistory = submission.reviewCommentHistory.filter(
+      (entry) => String(entry._id) !== String(release.historyEntryId)
+    );
+  } else if (comments.trim()) {
+    // Legacy releases have no entry ID; remove only a matching latest entry.
+    const last = submission.reviewCommentHistory.at(-1);
+    if (last?.decision === releasedStatus && last.comment === comments.trim() && last.round === currentRound) {
+      submission.reviewCommentHistory.pop();
+    }
+  }
+
+  if (!release) {
+    submission.reviewDraft = {
+      status: releasedStatus,
+      comments,
+      fieldComments: submission.fieldComments || {},
+      state: 'draft',
+      issuedAt: null,
+    };
+  } else {
+    submission.reviewDraft.state = 'draft';
+    submission.reviewDraft.issuedAt = null;
+  }
+
+  submission.status = release?.previousStatus || (currentRound > (REVISION_STATUSES.includes(releasedStatus) ? 1 : 0)
+    ? 'under_review_with_revisions' : 'under_review');
+  submission.reviewStatus = release?.previousReviewStatus || 'pending';
+  submission.reviewComments = release?.previousReviewComments || '';
+  submission.fieldComments = release?.previousFieldComments || {};
+  if (release) {
+    submission.revision = release.previousRevision;
+  } else if (submission.revision) {
+    submission.revision.round = Math.max(0, currentRound - (REVISION_STATUSES.includes(releasedStatus) ? 1 : 0));
+    submission.revision.deadline = null;
+    submission.revision.startedAt = null;
+    submission.revision.firstReminderSent = false;
+    submission.revision.finalReminderSent = false;
+  }
+  submission.reviewRelease = null;
+  submission.adminViewedAt = new Date();
+  return true;
+};
+
 export const unsubmitReview = async (req, res, next) => {
   try {
     const submission = await getReviewableSubmission(req.params.id);
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
-    if (submission.reviewDraft?.state !== 'issued' || !UNDER_REVIEW_STATUSES.includes(submission.status)) {
-      return errorResponse(res, 'Only an issued review awaiting approval can be unsubmitted.', 400);
+    if (submission.reviewDraft?.state === 'issued' && UNDER_REVIEW_STATUSES.includes(submission.status)) {
+      submission.reviewDraft.state = 'draft';
+      submission.reviewDraft.issuedAt = null;
+      await submission.save();
+      return successResponse(res, submission, 'Review unsubmitted. The reviewer can edit it again.');
     }
-    submission.reviewDraft.state = 'draft';
-    submission.reviewDraft.issuedAt = null;
+    if (!submission.assignedReviewerId || !retrieveReleasedReview(submission)) {
+      return errorResponse(res, 'Only the current released review can be retrieved before a revised proposal is resubmitted.', 400);
+    }
     await submission.save();
-    return successResponse(res, submission, 'Review unsubmitted. The reviewer can edit it again.');
+    return successResponse(res, submission, 'Released review retrieved. It is hidden from the researcher and editable by the reviewer.');
   } catch (error) { next(error); }
 };
 
@@ -595,6 +663,16 @@ export const approveReview = async (req, res, next) => {
       return errorResponse(res, 'Only an issued review can be approved.', 400);
     }
     const { status, comments, fieldComments } = submission.reviewDraft;
+
+    submission.reviewRelease = {
+      releasedStatus: status,
+      previousStatus: submission.status,
+      previousReviewStatus: submission.reviewStatus,
+      previousReviewComments: submission.reviewComments || '',
+      previousFieldComments: submission.fieldComments || {},
+      previousRevision: submission.revision?.toObject?.() || submission.revision || null,
+      historyEntryId: null,
+    };
 
     submission.reviewStatus = status;
     submission.status = status;
@@ -635,9 +713,10 @@ export const approveReview = async (req, res, next) => {
         author: submission.assignedReviewer || 'Reviewer',
         createdAt: new Date(),
       });
+      submission.reviewRelease.historyEntryId = String(submission.reviewCommentHistory.at(-1)._id);
     }
 
-    submission.reviewDraft = { status: null, comments: '', fieldComments: {}, state: 'draft', issuedAt: null };
+    submission.reviewDraft.state = 'released';
 
     await submission.save();
 

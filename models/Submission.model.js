@@ -81,9 +81,12 @@ const submissionSchema = new mongoose.Schema(
       status: { type: String, default: null },
       comments: { type: String, default: '' },
       fieldComments: { type: mongoose.Schema.Types.Mixed, default: {} },
-      state: { type: String, enum: ['draft', 'issued'], default: 'draft' },
+      state: { type: String, enum: ['draft', 'issued', 'released'], default: 'draft' },
       issuedAt: { type: Date, default: null },
     },
+    // Snapshot of public review data immediately before the latest release.
+    // Allows an admin to retrieve that review without losing previous rounds.
+    reviewRelease: { type: mongoose.Schema.Types.Mixed, default: null },
     // Append-only log of reviewer decisions. Each entry keeps the comment with the
     // date, the decision it accompanied, and the revision round, so the reviewer,
     // admin, and submitter can read the full history across revision cycles.

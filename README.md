@@ -84,9 +84,11 @@ All require authentication.
 | PUT | /:id/review-draft | assigned reviewer | Save decision and comments privately |
 | PATCH | /:id/field-comments | assigned reviewer | Save private section comments |
 | POST | /:id/issue-review | assigned reviewer | Issue saved review to admin |
-| POST | /:id/unsubmit-review | admin | Return issued review for editing |
+| POST | /:id/unsubmit-review | admin | Return issued or released review for editing; hide released review from researcher |
 | POST | /:id/approve-review | admin | Release issued decision and comments to researcher |
 | GET | /:id/export | All | Export (placeholder) |
+
+An admin can retrieve the currently released review until the researcher resubmits a revised proposal. Retrieval hides that decision and its comments in the platform and restores the reviewer draft. Email already delivered to the researcher cannot be recalled.
 
 ### Reviewers (`/api/reviewers`)
 | Method | Endpoint | Roles | Description |
