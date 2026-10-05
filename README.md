@@ -81,7 +81,11 @@ All require authentication.
 | PUT | /:id | researcher, admin | Update |
 | POST | /:id/submit | researcher, admin | Submit for review |
 | POST | /:id/assign-reviewer | admin | Assign reviewer |
-| POST | /:id/review | reviewer | Submit review |
+| PUT | /:id/review-draft | assigned reviewer | Save decision and comments privately |
+| PATCH | /:id/field-comments | assigned reviewer | Save private section comments |
+| POST | /:id/issue-review | assigned reviewer | Issue saved review to admin |
+| POST | /:id/unsubmit-review | admin | Return issued review for editing |
+| POST | /:id/approve-review | admin | Release issued decision and comments to researcher |
 | GET | /:id/export | All | Export (placeholder) |
 
 ### Reviewers (`/api/reviewers`)

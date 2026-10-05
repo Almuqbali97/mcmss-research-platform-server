@@ -33,7 +33,7 @@ const submissionSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['draft', 'under_review', 'approved', 'rejected', 'revisions_required', 'conditional_minor', 'major_revisions', 'archived'],
+      enum: ['draft', 'under_review', 'under_review_with_revisions', 'approved', 'rejected', 'revisions_required', 'conditional_minor', 'major_revisions', 'archived'],
       default: 'draft',
     },
     submittedDate: {
@@ -75,6 +75,14 @@ const submissionSchema = new mongoose.Schema(
     },
     reviewComments: {
       type: String,
+    },
+    // Private until an administrator releases an issued review.
+    reviewDraft: {
+      status: { type: String, default: null },
+      comments: { type: String, default: '' },
+      fieldComments: { type: mongoose.Schema.Types.Mixed, default: {} },
+      state: { type: String, enum: ['draft', 'issued'], default: 'draft' },
+      issuedAt: { type: Date, default: null },
     },
     // Append-only log of reviewer decisions. Each entry keeps the comment with the
     // date, the decision it accompanied, and the revision round, so the reviewer,

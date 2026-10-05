@@ -9,7 +9,7 @@ import {
   createSubmissionSchema,
   updateSubmissionSchema,
   assignReviewerSchema,
-  submitReviewSchema,
+  saveReviewSchema,
   extendRevisionDeadlineSchema,
   fieldCommentsSchema,
 } from '../validators/submission.validator.js';
@@ -47,7 +47,10 @@ router.post('/:id/assign-reviewer', authorize('admin'), validate(assignReviewerS
 router.post('/:id/pi-declaration', authorize('admin'), submissionController.adminSetPiDeclaration);
 router.post('/:id/approval-certificate', authorize('admin'), approvalCertificateUpload, submissionController.uploadApprovalCertificate);
 // Reviewers keep the 'researcher' role (reviewer capability via flag); the controller enforces assignment.
-router.post('/:id/review', authorize('researcher', 'reviewer', 'admin'), validate(submitReviewSchema), submissionController.submitReview);
+router.put('/:id/review-draft', authorize('researcher', 'reviewer', 'admin'), validate(saveReviewSchema), submissionController.saveReviewDraft);
+router.post('/:id/issue-review', authorize('researcher', 'reviewer', 'admin'), submissionController.issueReview);
+router.post('/:id/approve-review', authorize('admin'), submissionController.approveReview);
+router.post('/:id/unsubmit-review', authorize('admin'), submissionController.unsubmitReview);
 router.patch('/:id/revision-deadline', authorize('admin'), validate(extendRevisionDeadlineSchema), submissionController.extendRevisionDeadline);
 router.patch('/:id/field-comments', authorize('researcher', 'reviewer', 'admin'), validate(fieldCommentsSchema), submissionController.updateFieldComments);
 router.get('/:id/export', submissionController.exportSubmission);

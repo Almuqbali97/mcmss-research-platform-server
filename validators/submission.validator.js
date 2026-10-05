@@ -40,7 +40,7 @@ export const assignReviewerSchema = Joi.object({
   reviewerId: Joi.string().hex().length(24).required(),
 });
 
-export const submitReviewSchema = Joi.object({
+export const saveReviewSchema = Joi.object({
   status: Joi.string().valid('approved', 'rejected', 'conditional_minor', 'major_revisions').required(),
   comments: Joi.string().allow(''),
 });

@@ -9,6 +9,7 @@ import { successResponse, errorResponse } from '../utils/apiResponse.js';
 import { getNextSubmissionId } from '../services/submissionId.service.js';
 import {
   sendReviewAssignedEmail,
+  sendRevisionSubmittedEmail,
   sendSubmissionStatusEmail,
   sendSubmissionAcknowledgmentEmail,
   sendSupervisorApprovalEmail,
@@ -42,6 +43,21 @@ const SECOND_REVISION_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DELETION_RETENTION_DAYS = 30;
 const ACTIVE_SUBMISSION = { deletedAt: null };
+const UNDER_REVIEW_STATUSES = ['under_review', 'under_review_with_revisions'];
+
+// Reviewer identity and unreleased work must never leave the API for submitters.
+export const forViewer = (submission, user) => {
+  if (user.role === 'admin') return submission;
+  const data = submission.toObject ? submission.toObject() : { ...submission };
+  const isOwner = String(data.submittedBy?._id || data.submittedBy) === String(user._id);
+  if (isOwner) {
+    delete data.assignedReviewer;
+    delete data.assignedReviewerId;
+    delete data.reviewDraft;
+    data.reviewCommentHistory = (data.reviewCommentHistory || []).map(({ author, ...entry }) => entry);
+  }
+  return data;
+};
 
 const uploadsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
 
@@ -123,7 +139,7 @@ export const getSubmissions = async (req, res, next) => {
 
     if (user.role === 'admin' && markViewed === 'true') {
       const unseen = submissions.filter(
-        (submission) => submission.status === 'under_review' && !submission.adminViewedAt
+        (submission) => UNDER_REVIEW_STATUSES.includes(submission.status) && !submission.adminViewedAt
       );
       if (unseen.length > 0) {
         const viewedAt = new Date();
@@ -137,7 +153,7 @@ export const getSubmissions = async (req, res, next) => {
       }
     }
 
-    return successResponse(res, submissions);
+    return successResponse(res, submissions.map((submission) => forViewer(submission, user)));
   } catch (error) {
     next(error);
   }
@@ -186,7 +202,7 @@ export const getSubmission = async (req, res, next) => {
       if (!isSubmitter && !assignedToUser) {
         return errorResponse(res, 'Access denied.', 403);
       }
-    } else if (submission.status === 'under_review' && !submission.adminViewedAt) {
+    } else if (UNDER_REVIEW_STATUSES.includes(submission.status) && !submission.adminViewedAt) {
       submission.adminViewedAt = new Date();
       await Submission.updateOne(
         { _id: submission._id, adminViewedAt: null },
@@ -194,7 +210,7 @@ export const getSubmission = async (req, res, next) => {
       );
     }
 
-    return successResponse(res, submission);
+    return successResponse(res, forViewer(submission, user));
   } catch (error) {
     next(error);
   }
@@ -259,7 +275,7 @@ export const updateSubmission = async (req, res, next) => {
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
-    return successResponse(res, updated);
+    return successResponse(res, forViewer(updated, user));
   } catch (error) {
     next(error);
   }
@@ -345,10 +361,12 @@ export const submitForReview = async (req, res, next) => {
       return errorResponse(res, 'The revision deadline has passed. This submission will be closed and you must submit a new application.', 400);
     }
 
-    submission.status = 'under_review';
+    const isRevisionSubmission = REVISION_STATUSES.includes(submission.status);
+    submission.status = isRevisionSubmission ? 'under_review_with_revisions' : 'under_review';
     submission.submittedDate = new Date();
     submission.adminViewedAt = null;
     submission.reviewStatus = 'pending';
+    submission.reviewDraft = { status: null, comments: '', fieldComments: {}, state: 'draft', issuedAt: null };
     if (submission.reviewComments) {
       submission.reviewComments = '';
     }
@@ -377,11 +395,22 @@ export const submitForReview = async (req, res, next) => {
     }
 
     await notifyAdminOfSubmission({
-      formType: 'Research Ethics Submission',
+      formType: isRevisionSubmission ? 'Revised Research Ethics Submission' : 'Research Ethics Submission',
       title: submission.researchTitle,
       applicantName: submission.principalInvestigator,
       referenceId: submission.submissionId,
     });
+
+    if (isRevisionSubmission && submission.assignedReviewerId) {
+      try {
+        const reviewer = await Reviewer.findById(submission.assignedReviewerId);
+        if (reviewer?.isActive && reviewer.email) {
+          await sendRevisionSubmittedEmail(reviewer.email, reviewer.name, submission.researchTitle, submission.submissionId);
+        }
+      } catch (emailErr) {
+        console.error('Revision reviewer notification failed:', emailErr.message);
+      }
+    }
 
     // Masters/PhD submissions require supervisor approval via email — only on the
     // first submission. Revisions reuse the decision already on record.
@@ -451,7 +480,7 @@ export const submitForReview = async (req, res, next) => {
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
-    return successResponse(res, updated, 'Submission submitted for review.');
+    return successResponse(res, forViewer(updated, user), 'Submission submitted for review.');
   } catch (error) {
     next(error);
   }
@@ -475,6 +504,7 @@ export const assignReviewer = async (req, res, next) => {
     submission.assignedReviewerId = reviewer._id;
     // A fresh assignment resets any prior review decision.
     submission.reviewStatus = 'pending';
+    submission.reviewDraft = { status: null, comments: '', fieldComments: {}, state: 'draft', issuedAt: null };
     await submission.save();
 
     const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
@@ -494,32 +524,82 @@ export const assignReviewer = async (req, res, next) => {
   }
 };
 
-export const submitReview = async (req, res, next) => {
+const getReviewableSubmission = (id) => Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
+  .populate('submittedBy', 'firstName lastName email')
+  .populate('assignedReviewerId', 'name email');
+
+export const saveReviewDraft = async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const { status, comments } = req.body;
-    const user = req.user;
-
-    const submission = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
-      .populate('submittedBy', 'firstName lastName email')
-      .populate('assignedReviewerId', 'name email');
+    const submission = await getReviewableSubmission(req.params.id);
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
-
-    const reviewer = await Reviewer.findOne({ userId: user._id });
-    const isAssigned = isAssignedReviewer(submission.assignedReviewerId, reviewer?._id);
-    const isAdmin = user.role === 'admin';
-    if (!isAssigned && !isAdmin) {
+    const reviewer = await Reviewer.findOne({ userId: req.user._id, isActive: true });
+    if (!isAssignedReviewer(submission.assignedReviewerId, reviewer?._id)) {
       return errorResponse(res, 'You are not assigned to review this submission.', 403);
     }
-
-    // Reviewers cannot review until the PI has approved the Declaration. Admins may override.
-    if (!isAdmin && submission.piDeclarationApproval?.status !== 'approved') {
-      return errorResponse(res, 'The Principal Investigator has not yet approved the Declaration for this submission.', 403);
+    if (!UNDER_REVIEW_STATUSES.includes(submission.status) || submission.reviewDraft?.state === 'issued') {
+      return errorResponse(res, 'This review is not editable.', 400);
     }
+    if (submission.piDeclarationApproval?.status !== 'approved') {
+      return errorResponse(res, 'The Principal Investigator has not yet approved the Declaration.', 403);
+    }
+    submission.reviewDraft.status = req.body.status;
+    submission.reviewDraft.comments = req.body.comments || '';
+    await submission.save();
+    return successResponse(res, submission, 'Review draft saved.');
+  } catch (error) { next(error); }
+};
+
+export const issueReview = async (req, res, next) => {
+  try {
+    const submission = await getReviewableSubmission(req.params.id);
+    if (!submission) return errorResponse(res, 'Submission not found.', 404);
+    const reviewer = await Reviewer.findOne({ userId: req.user._id, isActive: true });
+    if (!isAssignedReviewer(submission.assignedReviewerId, reviewer?._id)) {
+      return errorResponse(res, 'You are not assigned to review this submission.', 403);
+    }
+    if (!UNDER_REVIEW_STATUSES.includes(submission.status) || submission.reviewDraft?.state === 'issued') {
+      return errorResponse(res, 'This review cannot be issued.', 400);
+    }
+    if (submission.piDeclarationApproval?.status !== 'approved' || !submission.reviewDraft?.status) {
+      return errorResponse(res, 'Save a decision after the PI approves the Declaration.', 400);
+    }
+    submission.reviewDraft.state = 'issued';
+    submission.reviewDraft.issuedAt = new Date();
+    await submission.save();
+    return successResponse(res, submission, 'Review issued to the administrator for approval.');
+  } catch (error) { next(error); }
+};
+
+export const unsubmitReview = async (req, res, next) => {
+  try {
+    const submission = await getReviewableSubmission(req.params.id);
+    if (!submission) return errorResponse(res, 'Submission not found.', 404);
+    if (submission.reviewDraft?.state !== 'issued' || !UNDER_REVIEW_STATUSES.includes(submission.status)) {
+      return errorResponse(res, 'Only an issued review awaiting approval can be unsubmitted.', 400);
+    }
+    submission.reviewDraft.state = 'draft';
+    submission.reviewDraft.issuedAt = null;
+    await submission.save();
+    return successResponse(res, submission, 'Review unsubmitted. The reviewer can edit it again.');
+  } catch (error) { next(error); }
+};
+
+export const approveReview = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    const submission = await getReviewableSubmission(id);
+    if (!submission) return errorResponse(res, 'Submission not found.', 404);
+    if (!UNDER_REVIEW_STATUSES.includes(submission.status) || submission.reviewDraft?.state !== 'issued') {
+      return errorResponse(res, 'Only an issued review can be approved.', 400);
+    }
+    const { status, comments, fieldComments } = submission.reviewDraft;
 
     submission.reviewStatus = status;
     submission.status = status;
     submission.reviewComments = comments || '';
+    submission.fieldComments = fieldComments || {};
 
     let revisionInfo = null;
     if (REVISION_STATUSES.includes(status)) {
@@ -548,18 +628,16 @@ export const submitReview = async (req, res, next) => {
     // Record this decision's comment in the dated history so previous rounds stay
     // visible. Only log when the reviewer actually wrote something.
     if (comments && comments.trim()) {
-      const author =
-        reviewer?.name ||
-        `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
-        (isAdmin ? 'Administrator' : 'Reviewer');
       submission.reviewCommentHistory.push({
         comment: comments.trim(),
         decision: status,
         round: submission.revision?.round || 0,
-        author,
+        author: submission.assignedReviewer || 'Reviewer',
         createdAt: new Date(),
       });
     }
+
+    submission.reviewDraft = { status: null, comments: '', fieldComments: {}, state: 'draft', issuedAt: null };
 
     await submission.save();
 
@@ -570,7 +648,7 @@ export const submitReview = async (req, res, next) => {
           'Researcher';
         const piEmail = submission.formData?.principalInvestigator?.email;
         if (status === 'approved') {
-          await sendApprovalGrantedEmail(submission.submittedBy.email, submitterName, piEmail);
+          await sendApprovalGrantedEmail(submission.submittedBy.email, submitterName, submission.researchTitle, submission.submissionId, piEmail);
         } else if (status === 'rejected') {
           await sendRejectionNoticeEmail(
             submission.submittedBy.email,
@@ -599,7 +677,7 @@ export const submitReview = async (req, res, next) => {
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization');
 
-    return successResponse(res, updated, 'Review submitted successfully.');
+    return successResponse(res, updated, 'Review approved and shared with the researcher.');
   } catch (error) {
     next(error);
   }
@@ -663,8 +741,10 @@ export const updateFieldComments = async (req, res, next) => {
     if (!isAssigned && !isAdmin) {
       return errorResponse(res, 'You are not authorized to add comments to this submission.', 403);
     }
-
-    submission.fieldComments = fieldComments || {};
+    if (!UNDER_REVIEW_STATUSES.includes(submission.status) || submission.reviewDraft?.state === 'issued') {
+      return errorResponse(res, 'This review is not editable.', 400);
+    }
+    submission.reviewDraft.fieldComments = fieldComments || {};
     await submission.save();
 
     const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
@@ -906,9 +986,7 @@ export const exportSubmission = async (req, res, next) => {
       return errorResponse(res, 'Access denied.', 403);
     }
 
-    return successResponse(res, {
-      submission: submission.toObject ? submission.toObject() : submission,
-    });
+    return successResponse(res, { submission: forViewer(submission, user) });
   } catch (error) {
     next(error);
   }

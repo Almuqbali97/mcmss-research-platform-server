@@ -185,6 +185,16 @@ const templates = {
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>${appName} Team</strong></p>
     `,
   }),
+  revisionSubmitted: (reviewerName, title, proposalNo, platformUrl, appName) => ({
+    subject: `Revised Proposal Ready for Review - ${appName}`,
+    content: `
+      <p>Dear ${escapeHtml(reviewerName)},</p>
+      <p>Revisions have been submitted for the proposal assigned to you:</p>
+      <p><strong>${escapeHtml(title)}</strong> [Proposal No. ${escapeHtml(proposalNo)}]</p>
+      <p>Please <a href="${platformUrl}">log in to the platform</a> to review the revised proposal.</p>
+      <p>${COMMITTEE_SIGNATURE}</p>
+    `,
+  }),
   submissionStatusUpdate: (name, submissionTitle, status, appName, revisionInfo) => ({
     subject: `Submission Status Update - ${appName}`,
     content: `
@@ -333,10 +343,11 @@ const templates = {
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>Medical Research Ethics Committee</strong><br/>Medical City for Military and Security Services<br/>Muscat, Oman</p>
     `,
   }),
-  approvalGranted: (name, appName) => ({
-    subject: `Research Ethics Approval Granted - ${appName}`,
+  approvalGranted: (name, title, proposalNo, appName) => ({
+    subject: `Research Ethics Approval Granted - ${proposalNo} - ${appName}`,
     content: `
       <p style="margin: 0 0 16px;">Dear ${escapeHtml(name)},</p>
+      <p style="margin: 0 0 16px;">Study: <strong>${escapeHtml(title)}</strong><br/>Proposal No. <strong>${escapeHtml(proposalNo)}</strong></p>
       <p style="margin: 0 0 16px;">Thank you for submitting your research proposal for ethical review. The Ethics Committee at the Medical City for Military and Security Services (MCMSS) has completed its evaluation and has <strong>APPROVED</strong> your research protocol. This approval is granted according to the details provided in your application and is subject to the following conditions:</p>
       <ul style="margin: 0 0 16px; padding-left: 20px; color: #2c3e50;">
         <li style="margin: 0 0 8px;">All data collection and procedures are conducted in strict adherence to the approved research protocol.</li>
@@ -390,6 +401,13 @@ export const sendOTPEmail = async (email, name, otp, purpose = 'Verification', e
 export const sendReviewAssignedEmail = async (reviewerEmail, reviewerName, submissionTitle) => {
   const platformUrl = `${config.app.frontendUrl}/dashboard`;
   const { subject, content } = templates.reviewAssigned(reviewerName, submissionTitle, platformUrl, BRANDING.appName);
+  return sendEmail({ to: reviewerEmail, subject, html: getEmailLayout(content) });
+};
+
+export const sendRevisionSubmittedEmail = async (reviewerEmail, reviewerName, title, proposalNo) => {
+  const { subject, content } = templates.revisionSubmitted(
+    reviewerName, title, proposalNo, `${config.app.frontendUrl}/dashboard`, BRANDING.appName
+  );
   return sendEmail({ to: reviewerEmail, subject, html: getEmailLayout(content) });
 };
 
@@ -556,9 +574,9 @@ export const sendRevisionArchivedEmail = async (email, name, title, proposalNo, 
 };
 
 /* Notifies the submitter that ethics approval was granted. CCs the PI when distinct. */
-export const sendApprovalGrantedEmail = async (email, name, piEmailRaw) => {
+export const sendApprovalGrantedEmail = async (email, name, title, proposalNo, piEmailRaw) => {
   if (!email) return { sent: false, messageId: null };
-  const { subject, content } = templates.approvalGranted(name || 'Researcher', BRANDING.appName);
+  const { subject, content } = templates.approvalGranted(name || 'Researcher', title || 'Untitled study', proposalNo || 'Not available', BRANDING.appName);
   const piEmail = typeof piEmailRaw === 'string' ? piEmailRaw.trim().toLowerCase() : '';
   const submitterLower = email.trim().toLowerCase();
   const cc = piEmail && EMAIL_RE.test(piEmail) && piEmail !== submitterLower ? piEmail : undefined;
