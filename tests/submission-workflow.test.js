@@ -41,7 +41,7 @@ test('owner responses omit reviewer identity and unreleased review work', () => 
   assert.equal(result.assignedReviewerId, undefined);
   assert.equal(result.reviewDraft, undefined);
   assert.equal(result.reviewCommentHistory[0].author, undefined);
-  assert.equal(result.fieldComments.introduction, 'Released section comment');
+  assert.deepEqual(result.fieldComments, {});
 });
 
 test('admin responses retain issued review and reviewer identity', () => {
@@ -76,13 +76,15 @@ test('retrieving a released revision hides that round and preserves its editable
   assert.equal(submission.status, 'under_review_with_revisions');
   assert.equal(submission.reviewDraft.state, 'draft');
   assert.equal(submission.reviewDraft.comments, 'Released current comment');
+  assert.equal(submission.reviewDraft.fieldComments.introduction, 'Released current field comment');
+  assert.deepEqual(submission.fieldComments, {});
   assert.equal(submission.revision.round, 1);
   assert.equal(submission.reviewCommentHistory.length, 1);
   const researcherView = forViewer(submission, { _id: ownerId, role: 'researcher' });
   assert.equal(researcherView.reviewDraft, undefined);
   assert.equal(researcherView.reviewRelease, undefined);
   assert.equal(researcherView.reviewComments, '');
-  assert.equal(researcherView.fieldComments.introduction, 'Earlier round comment');
+  assert.deepEqual(researcherView.fieldComments, {});
   assert.equal(researcherView.reviewCommentHistory.some((entry) => entry.comment === 'Released current comment'), false);
 });
 
@@ -100,9 +102,37 @@ test('an older approved review can be retrieved until a new submission starts', 
   assert.equal(retrieveReleasedReview(submission), true);
   assert.equal(submission.status, 'under_review');
   assert.equal(submission.reviewDraft.comments, 'Approval comment');
+  assert.equal(submission.reviewDraft.fieldComments.introduction, 'Approval field comment');
+  assert.deepEqual(submission.fieldComments, {});
   assert.equal(submission.reviewCommentHistory.some((entry) => entry.comment === 'Approval comment'), false);
   submission.status = 'under_review_with_revisions';
   assert.equal(canRetrieveReleasedReview(submission), false);
+});
+
+test('retrieval recovers legacy section comments into the private draft', () => {
+  const submission = makeSubmission();
+  submission.status = 'major_revisions';
+  submission.reviewStatus = 'major_revisions';
+  submission.reviewDraft = {
+    status: 'major_revisions', comments: '', fieldComments: {}, state: 'released',
+  };
+  submission.fieldComments = {};
+  submission.reviewRelease = {
+    releasedStatus: 'major_revisions', previousStatus: 'under_review',
+    previousReviewStatus: 'pending', previousFieldComments: {
+      introduction: 'Older section comment',
+    },
+    previousRevision: { round: 0, deadline: null },
+  };
+
+  assert.equal(retrieveReleasedReview(submission), true);
+  assert.equal(submission.reviewDraft.fieldComments.introduction, 'Older section comment');
+  assert.deepEqual(submission.fieldComments, {});
+  assert.deepEqual(forViewer(submission, { _id: ownerId, role: 'researcher' }).fieldComments, {});
+
+  // Records retrieved before this fix can still contain legacy public comments.
+  submission.fieldComments = { introduction: 'Older section comment' };
+  assert.deepEqual(forViewer(submission, { _id: ownerId, role: 'researcher' }).fieldComments, {});
 });
 
 test('admin can edit issued comments before approval while researcher cannot see them', async (context) => {
@@ -133,7 +163,7 @@ test('admin can edit issued comments before approval while researcher cannot see
   assert.equal(submission.reviewDraft.fieldComments.introduction, 'Admin edited section comment');
   const researcherView = forViewer(submission, { _id: ownerId, role: 'researcher' });
   assert.equal(researcherView.reviewDraft, undefined);
-  assert.equal(researcherView.fieldComments.introduction, 'Released section comment');
+  assert.deepEqual(researcherView.fieldComments, {});
 
   submission.status = 'approved';
   const afterApprovalResponse = response();

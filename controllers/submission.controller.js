@@ -51,11 +51,17 @@ export const forViewer = (submission, user) => {
   const data = submission.toObject ? submission.toObject() : { ...submission };
   const isOwner = String(data.submittedBy?._id || data.submittedBy) === String(user._id);
   if (isOwner) {
+    const hasPrivateReview = UNDER_REVIEW_STATUSES.includes(data.status) && !!data.reviewDraft?.status;
     delete data.assignedReviewer;
     delete data.assignedReviewerId;
     delete data.reviewDraft;
     delete data.reviewRelease;
     if (data.status !== 'approved') delete data.approvalCertificate;
+    // A retrieved review may predate private drafts. Never expose its legacy
+    // section comments while the decision is back under review.
+    if (hasPrivateReview) {
+      data.fieldComments = {};
+    }
     data.reviewCommentHistory = (data.reviewCommentHistory || []).map(({ author, ...entry }) => entry);
   }
   return data;
@@ -602,6 +608,7 @@ export const retrieveReleasedReview = (submission) => {
   const releasedStatus = submission.status;
   const release = submission.reviewRelease;
   const comments = submission.reviewComments || '';
+  const releasedFieldComments = submission.fieldComments || {};
   const currentRound = submission.revision?.round || 0;
 
   if (release?.historyEntryId) {
@@ -620,11 +627,19 @@ export const retrieveReleasedReview = (submission) => {
     submission.reviewDraft = {
       status: releasedStatus,
       comments,
-      fieldComments: submission.fieldComments || {},
+      fieldComments: releasedFieldComments,
       state: 'draft',
       issuedAt: null,
     };
   } else {
+    // Older reviews can have their section comments only in the public field.
+    // Move those comments into the private draft before hiding the release.
+    submission.reviewDraft.fieldComments = {
+      ...(release.previousFieldComments || {}),
+      ...releasedFieldComments,
+      ...(submission.reviewDraft.fieldComments || {}),
+    };
+    if (!submission.reviewDraft.comments && comments) submission.reviewDraft.comments = comments;
     submission.reviewDraft.state = 'draft';
     submission.reviewDraft.issuedAt = null;
   }
@@ -633,7 +648,7 @@ export const retrieveReleasedReview = (submission) => {
     ? 'under_review_with_revisions' : 'under_review');
   submission.reviewStatus = release?.previousReviewStatus || 'pending';
   submission.reviewComments = release?.previousReviewComments || '';
-  submission.fieldComments = release?.previousFieldComments || {};
+  submission.fieldComments = {};
   if (release) {
     submission.revision = release.previousRevision;
   } else if (submission.revision) {
