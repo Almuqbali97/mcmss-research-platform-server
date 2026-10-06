@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import Submission from '../models/Submission.model.js';
-import { forViewer, canRetrieveReleasedReview, retrieveReleasedReview } from '../controllers/submission.controller.js';
+import {
+  forViewer, canRetrieveReleasedReview, retrieveReleasedReview,
+  saveReviewDraft, updateFieldComments,
+} from '../controllers/submission.controller.js';
 
 const ownerId = new mongoose.Types.ObjectId();
 const reviewerId = new mongoose.Types.ObjectId();
@@ -99,4 +102,43 @@ test('an older approved review can be retrieved until a new submission starts', 
   assert.equal(submission.reviewCommentHistory.some((entry) => entry.comment === 'Approval comment'), false);
   submission.status = 'under_review_with_revisions';
   assert.equal(canRetrieveReleasedReview(submission), false);
+});
+
+test('admin can edit issued comments before approval while researcher cannot see them', async (context) => {
+  const submission = makeSubmission();
+  const query = { populate() { return this; }, then(resolve) { resolve(submission); } };
+  context.mock.method(Submission, 'findOne', () => query);
+  context.mock.method(submission, 'save', async () => submission);
+  const response = () => ({
+    status(code) { this.code = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  });
+  const user = { _id: new mongoose.Types.ObjectId(), role: 'admin' };
+  const next = (error) => { throw error; };
+
+  const overallResponse = response();
+  await saveReviewDraft({ params: { id: String(submission._id) }, user, body: {
+    status: 'major_revisions', comments: 'Admin edited overall comment',
+  } }, overallResponse, next);
+  assert.equal(overallResponse.code, 200);
+  assert.equal(submission.reviewDraft.state, 'issued');
+  assert.equal(submission.reviewDraft.comments, 'Admin edited overall comment');
+
+  const sectionResponse = response();
+  await updateFieldComments({ params: { id: String(submission._id) }, user, body: {
+    fieldComments: { introduction: 'Admin edited section comment' },
+  } }, sectionResponse, next);
+  assert.equal(sectionResponse.code, 200);
+  assert.equal(submission.reviewDraft.fieldComments.introduction, 'Admin edited section comment');
+  const researcherView = forViewer(submission, { _id: ownerId, role: 'researcher' });
+  assert.equal(researcherView.reviewDraft, undefined);
+  assert.equal(researcherView.fieldComments.introduction, 'Released section comment');
+
+  submission.status = 'approved';
+  const afterApprovalResponse = response();
+  await saveReviewDraft({ params: { id: String(submission._id) }, user, body: {
+    status: 'major_revisions', comments: 'Too late',
+  } }, afterApprovalResponse, next);
+  assert.equal(afterApprovalResponse.code, 400);
+  assert.equal(submission.reviewDraft.comments, 'Admin edited overall comment');
 });

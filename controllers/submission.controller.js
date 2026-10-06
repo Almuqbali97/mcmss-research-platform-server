@@ -535,17 +535,22 @@ export const saveReviewDraft = async (req, res, next) => {
   try {
     const submission = await getReviewableSubmission(req.params.id);
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
-    const reviewer = await Reviewer.findOne({ userId: req.user._id, isActive: true });
-    if (!isAssignedReviewer(submission.assignedReviewerId, reviewer?._id)) {
+    const isAdmin = req.user.role === 'admin';
+    const reviewer = isAdmin ? null : await Reviewer.findOne({ userId: req.user._id, isActive: true });
+    if (!isAdmin && !isAssignedReviewer(submission.assignedReviewerId, reviewer?._id)) {
       return errorResponse(res, 'You are not assigned to review this submission.', 403);
     }
-    if (!UNDER_REVIEW_STATUSES.includes(submission.status) || submission.reviewDraft?.state === 'issued') {
+    if (!UNDER_REVIEW_STATUSES.includes(submission.status) ||
+        (submission.reviewDraft?.state === 'issued' && !isAdmin)) {
       return errorResponse(res, 'This review is not editable.', 400);
     }
-    if (submission.piDeclarationApproval?.status !== 'approved') {
+    if (!isAdmin && submission.piDeclarationApproval?.status !== 'approved') {
       return errorResponse(res, 'The Principal Investigator has not yet approved the Declaration.', 403);
     }
-    submission.reviewDraft.status = req.body.status;
+    if (isAdmin && (!submission.reviewDraft?.status || req.body.status !== submission.reviewDraft.status)) {
+      return errorResponse(res, 'The admin can edit comments but not change the reviewer decision.', 400);
+    }
+    if (!isAdmin) submission.reviewDraft.status = req.body.status;
     submission.reviewDraft.comments = req.body.comments || '';
     await submission.save();
     return successResponse(res, submission, 'Review draft saved.');
@@ -814,13 +819,14 @@ export const updateFieldComments = async (req, res, next) => {
 
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
 
-    const reviewer = await Reviewer.findOne({ userId: user._id });
-    const isAssigned = isAssignedReviewer(submission.assignedReviewerId, reviewer?._id);
     const isAdmin = user.role === 'admin';
+    const reviewer = isAdmin ? null : await Reviewer.findOne({ userId: user._id });
+    const isAssigned = isAssignedReviewer(submission.assignedReviewerId, reviewer?._id);
     if (!isAssigned && !isAdmin) {
       return errorResponse(res, 'You are not authorized to add comments to this submission.', 403);
     }
-    if (!UNDER_REVIEW_STATUSES.includes(submission.status) || submission.reviewDraft?.state === 'issued') {
+    if (!UNDER_REVIEW_STATUSES.includes(submission.status) ||
+        (submission.reviewDraft?.state === 'issued' && !isAdmin)) {
       return errorResponse(res, 'This review is not editable.', 400);
     }
     submission.reviewDraft.fieldComments = fieldComments || {};
