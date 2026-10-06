@@ -41,8 +41,8 @@ export const assignReviewerSchema = Joi.object({
 });
 
 export const saveReviewSchema = Joi.object({
-  status: Joi.string().valid('approved', 'rejected', 'conditional_minor', 'major_revisions').required(),
-  comments: Joi.string().allow(''),
+  status: Joi.string().valid('approved', 'rejected', 'conditional_minor', 'major_revisions').optional(),
+  comments: Joi.string().allow('').required(),
 });
 
 export const extendRevisionDeadlineSchema = Joi.object({

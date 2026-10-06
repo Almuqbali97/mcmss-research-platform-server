@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
 import Submission from '../models/Submission.model.js';
+import Reviewer from '../models/Reviewer.model.js';
 import {
   forViewer, canRetrieveReleasedReview, retrieveReleasedReview,
-  saveReviewDraft, updateFieldComments,
+  saveReviewDraft, updateFieldComments, assignReviewer,
 } from '../controllers/submission.controller.js';
 
 const ownerId = new mongoose.Types.ObjectId();
@@ -141,4 +142,46 @@ test('admin can edit issued comments before approval while researcher cannot see
   } }, afterApprovalResponse, next);
   assert.equal(afterApprovalResponse.code, 400);
   assert.equal(submission.reviewDraft.comments, 'Admin edited overall comment');
+});
+
+test('admin comments before a reviewer decision survive reviewer assignment', async (context) => {
+  const submission = makeSubmission();
+  submission.reviewDraft = { status: null, comments: '', fieldComments: {}, state: 'draft' };
+  submission.assignedReviewerId = null;
+  submission.assignedReviewer = null;
+  const query = { populate() { return this; }, then(resolve) { resolve(submission); } };
+  context.mock.method(Submission, 'findOne', () => query);
+  context.mock.method(submission, 'save', async () => submission);
+  const response = () => ({
+    status(code) { this.code = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  });
+  const user = { _id: new mongoose.Types.ObjectId(), role: 'admin' };
+  const next = (error) => { throw error; };
+
+  const overallResponse = response();
+  await saveReviewDraft({ params: { id: String(submission._id) }, user, body: {
+    comments: 'Admin overall comment before assignment',
+  } }, overallResponse, next);
+  assert.equal(overallResponse.code, 200);
+  assert.equal(submission.reviewDraft.status, null);
+
+  const sectionResponse = response();
+  await updateFieldComments({ params: { id: String(submission._id) }, user, body: {
+    fieldComments: { introduction: 'Admin section comment before assignment' },
+  } }, sectionResponse, next);
+  assert.equal(sectionResponse.code, 200);
+  assert.equal(forViewer(submission, { _id: ownerId, role: 'researcher' }).reviewDraft, undefined);
+
+  const newReviewerId = new mongoose.Types.ObjectId();
+  context.mock.method(Reviewer, 'findById', async () => ({
+    _id: newReviewerId, name: 'Assigned Reviewer', isActive: true, email: null,
+  }));
+  const assignmentResponse = response();
+  await assignReviewer({ params: { id: String(submission._id) }, body: {
+    reviewerId: String(newReviewerId),
+  } }, assignmentResponse, next);
+  assert.equal(assignmentResponse.code, 200);
+  assert.equal(submission.reviewDraft.comments, 'Admin overall comment before assignment');
+  assert.equal(submission.reviewDraft.fieldComments.introduction, 'Admin section comment before assignment');
 });

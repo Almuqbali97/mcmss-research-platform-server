@@ -507,7 +507,13 @@ export const assignReviewer = async (req, res, next) => {
     submission.assignedReviewerId = reviewer._id;
     // A fresh assignment resets any prior review decision.
     submission.reviewStatus = 'pending';
-    submission.reviewDraft = { status: null, comments: '', fieldComments: {}, state: 'draft', issuedAt: null };
+    submission.reviewDraft = {
+      status: null,
+      comments: submission.reviewDraft?.comments || '',
+      fieldComments: submission.reviewDraft?.fieldComments || {},
+      state: 'draft',
+      issuedAt: null,
+    };
     await submission.save();
 
     const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
@@ -547,10 +553,13 @@ export const saveReviewDraft = async (req, res, next) => {
     if (!isAdmin && submission.piDeclarationApproval?.status !== 'approved') {
       return errorResponse(res, 'The Principal Investigator has not yet approved the Declaration.', 403);
     }
-    if (isAdmin && (!submission.reviewDraft?.status || req.body.status !== submission.reviewDraft.status)) {
+    if (isAdmin && req.body.status !== undefined && req.body.status !== submission.reviewDraft?.status) {
       return errorResponse(res, 'The admin can edit comments but not change the reviewer decision.', 400);
     }
-    if (!isAdmin) submission.reviewDraft.status = req.body.status;
+    if (!isAdmin) {
+      if (!req.body.status) return errorResponse(res, 'Choose a review decision before saving.', 400);
+      submission.reviewDraft.status = req.body.status;
+    }
     submission.reviewDraft.comments = req.body.comments || '';
     await submission.save();
     return successResponse(res, submission, 'Review draft saved.');

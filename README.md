@@ -81,8 +81,8 @@ All require authentication.
 | PUT | /:id | researcher, admin | Update |
 | POST | /:id/submit | researcher, admin | Submit for review |
 | POST | /:id/assign-reviewer | admin | Assign reviewer |
-| PUT | /:id/review-draft | assigned reviewer, admin | Save overall comments privately; admin may edit comments on an issued review |
-| PATCH | /:id/field-comments | assigned reviewer, admin | Save private section comments; admin may edit comments on an issued review |
+| PUT | /:id/review-draft | assigned reviewer, admin | Save private overall comments; admin may comment before a reviewer decision or edit an issued review |
+| PATCH | /:id/field-comments | assigned reviewer, admin | Save private section comments, including before reviewer assignment |
 | POST | /:id/issue-review | assigned reviewer | Issue saved review to admin |
 | POST | /:id/unsubmit-review | admin | Return issued or released review for editing; hide released review from researcher |
 | POST | /:id/approve-review | admin | Release issued decision and comments to researcher |
