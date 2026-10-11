@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import fs from 'node:fs';
 import * as submissionController from '../controllers/submission.controller.js';
 import { authenticate } from '../middlewares/auth.middleware.js';
 import { authorize } from '../middlewares/rbac.middleware.js';
@@ -18,6 +19,13 @@ const router = Router();
 
 const maybeMultipart = (req, res, next) => {
   if (req.is('multipart/form-data')) {
+    res.on('finish', () => {
+      if (res.statusCode >= 400) {
+        for (const file of Object.values(req.files || {}).flat()) {
+          fs.promises.unlink(file.path).catch(() => {});
+        }
+      }
+    });
     submissionUpload(req, res, (err) => {
       if (err) return next(err);
       parseMultipartSubmission(req, res, next);

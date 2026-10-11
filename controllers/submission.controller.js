@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { uploadsDir } from '../config/uploads.js';
 import Submission from '../models/Submission.model.js';
 import Reviewer from '../models/Reviewer.model.js';
 import { config } from '../config/index.js';
@@ -21,6 +21,7 @@ import {
 } from '../services/email.service.js';
 import { notifyAdminOfSubmission } from '../services/notification.service.js';
 import { permanentlyDeleteSubmission as permanentlyDeleteSubmissionRecord } from '../services/submissionDeletion.service.js';
+import { ensureReviewHistory, recordReviewEvent, recordSubmissionVersion, researcherHistory } from '../services/reviewHistory.service.js';
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
@@ -63,11 +64,11 @@ export const forViewer = (submission, user) => {
       data.fieldComments = {};
     }
     data.reviewCommentHistory = (data.reviewCommentHistory || []).map(({ author, ...entry }) => entry);
+    data.reviewHistory = researcherHistory(data.reviewHistory);
   }
   return data;
 };
 
-const uploadsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
 
 const SUBMISSION_FILE_FIELDS = [
   'informationSheetFiles',
@@ -140,7 +141,7 @@ export const getSubmissions = async (req, res, next) => {
 
     if (status) query.status = status;
 
-    const submissions = await Submission.find(query)
+    const submissions = await Submission.find(query).select('-submissionVersions')
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization')
       .sort({ createdAt: -1 });
@@ -176,7 +177,7 @@ export const getAssignedSubmissions = async (req, res, next) => {
       return successResponse(res, []);
     }
 
-    const submissions = await Submission.find({ ...ACTIVE_SUBMISSION, assignedReviewerId: reviewer._id })
+    const submissions = await Submission.find({ ...ACTIVE_SUBMISSION, assignedReviewerId: reviewer._id }).select('-submissionVersions')
       .populate('submittedBy', 'firstName lastName email')
       .populate('assignedReviewerId', 'name email specialization')
       .sort({ createdAt: -1 });
@@ -372,6 +373,7 @@ export const submitForReview = async (req, res, next) => {
     const isRevisionSubmission = REVISION_STATUSES.includes(submission.status);
     submission.status = isRevisionSubmission ? 'under_review_with_revisions' : 'under_review';
     submission.submittedDate = new Date();
+    recordSubmissionVersion(submission, isRevisionSubmission);
     submission.adminViewedAt = null;
     submission.reviewStatus = 'pending';
     submission.reviewDraft = { status: null, comments: '', fieldComments: {}, state: 'draft', issuedAt: null };
@@ -588,6 +590,10 @@ export const issueReview = async (req, res, next) => {
     }
     submission.reviewDraft.state = 'issued';
     submission.reviewDraft.issuedAt = new Date();
+    recordReviewEvent(submission, 'review_issued', {
+      decision: submission.reviewDraft.status, comment: submission.reviewDraft.comments,
+      fieldComments: submission.reviewDraft.fieldComments, author: submission.assignedReviewer,
+    });
     await submission.save();
     return successResponse(res, submission, 'Review issued to the administrator for approval.');
   } catch (error) { next(error); }
@@ -610,6 +616,17 @@ export const retrieveReleasedReview = (submission) => {
   const comments = submission.reviewComments || '';
   const releasedFieldComments = submission.fieldComments || {};
   const currentRound = submission.revision?.round || 0;
+  ensureReviewHistory(submission);
+  const releasedEvent = release?.auditEventId
+    ? submission.reviewHistory.find((entry) => String(entry._id) === release.auditEventId)
+    : [...submission.reviewHistory].reverse().find((entry) => entry.event === 'decision_released' && entry.round === currentRound && entry.comment === comments.trim());
+  // Legacy releases without comments were never logged. Preserve what is known now.
+  const currentEvent = releasedEvent?.decision === releasedStatus ? releasedEvent : recordReviewEvent(submission, 'decision_released', {
+    decision: releasedStatus, comment: comments, fieldComments: releasedFieldComments, createdAt: null,
+  });
+  recordReviewEvent(submission, 'decision_retrieved', {
+    decision: releasedStatus, relatedEventId: String(currentEvent._id),
+  });
 
   if (release?.historyEntryId) {
     submission.reviewCommentHistory = submission.reviewCommentHistory.filter(
@@ -668,6 +685,7 @@ export const unsubmitReview = async (req, res, next) => {
     const submission = await getReviewableSubmission(req.params.id);
     if (!submission) return errorResponse(res, 'Submission not found.', 404);
     if (submission.reviewDraft?.state === 'issued' && UNDER_REVIEW_STATUSES.includes(submission.status)) {
+      recordReviewEvent(submission, 'review_returned', { decision: submission.reviewDraft.status });
       submission.reviewDraft.state = 'draft';
       submission.reviewDraft.issuedAt = null;
       await submission.save();
@@ -692,6 +710,7 @@ export const approveReview = async (req, res, next) => {
       return errorResponse(res, 'Only an issued review can be approved.', 400);
     }
     const { status, comments, fieldComments } = submission.reviewDraft;
+    ensureReviewHistory(submission);
 
     submission.reviewRelease = {
       releasedStatus: status,
@@ -732,11 +751,17 @@ export const approveReview = async (req, res, next) => {
       }
     }
 
-    // Record this decision's comment in the dated history so previous rounds stay
-    // visible. Only log when the reviewer actually wrote something.
-    if (comments && comments.trim()) {
+    const auditEvent = recordReviewEvent(submission, 'decision_released', {
+      decision: status, comment: (comments || '').trim(),
+      fieldComments: JSON.parse(JSON.stringify(fieldComments || {})),
+      author: submission.assignedReviewer || 'Reviewer', deadline: revisionInfo?.deadline || null,
+    });
+    submission.reviewRelease.auditEventId = String(auditEvent._id);
+
+    // Every decision is retained, including approvals with no overall comment.
+    {
       submission.reviewCommentHistory.push({
-        comment: comments.trim(),
+        comment: (comments || '').trim(),
         decision: status,
         round: submission.revision?.round || 0,
         author: submission.assignedReviewer || 'Reviewer',
@@ -812,6 +837,7 @@ export const extendRevisionDeadline = async (req, res, next) => {
     }
 
     submission.revision.deadline = newDeadline;
+    recordReviewEvent(submission, 'deadline_extended', { deadline: newDeadline });
     submission.revision.finalReminderSent = false;
     if (!Array.isArray(submission.revision.extensions)) submission.revision.extensions = [];
     submission.revision.extensions.push({

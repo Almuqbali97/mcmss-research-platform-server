@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { uploadsDir } from '../config/uploads.js';
 import PublicationFunding from '../models/PublicationFunding.model.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
 import { generatePublicationFundingId } from '../utils/generatePublicationFundingId.js';
@@ -13,7 +13,6 @@ import { notifyAdminOfSubmission } from '../services/notification.service.js';
 const RESEARCHER_EDITABLE_STATUSES = ['draft', 'revisions_required'];
 const RESEARCHER_SUBMITTABLE_STATUSES = ['draft', 'revisions_required'];
 
-const uploadsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
 
 const PF_FILE_FIELDS = [
   'frontPageOrArticleFiles',

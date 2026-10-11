@@ -6,6 +6,14 @@ export const notFound = (req, res, next) => {
 };
 
 export const globalErrorHandler = (err, req, res, next) => {
+  if (err.name === 'MulterError') {
+    const message = err.code === 'LIMIT_FILE_SIZE'
+      ? 'The selected file exceeds the upload size limit.'
+      : err.code === 'LIMIT_UNEXPECTED_FILE'
+        ? 'Too many files or an unsupported upload field.'
+        : 'The file upload could not be processed. Please select your files again.';
+    return errorResponse(res, message, 400);
+  }
   err.statusCode = err.statusCode || 500;
   err.message = err.message || 'Internal Server Error';
 

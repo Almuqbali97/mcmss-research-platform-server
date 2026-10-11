@@ -1,10 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadsDir = path.join(__dirname, '../uploads');
+import { uploadsDir } from '../config/uploads.js';
 
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -28,7 +25,7 @@ const fileFilter = (req, file, cb) => {
   if (allowed.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('Only PDF, DOC, and DOCX files are allowed.'), false);
+    cb(Object.assign(new Error('Only PDF, DOC, and DOCX files are allowed.'), { statusCode: 400 }), false);
   }
 };
 

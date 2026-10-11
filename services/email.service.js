@@ -344,7 +344,7 @@ const templates = {
     `,
   }),
   approvalGranted: (name, title, proposalNo, appName) => ({
-    subject: `Research Ethics Approval Granted - ${proposalNo} - ${appName}`,
+    subject: `Research Ethics Approval Granted - ${proposalNo} - ${String(title).replace(/[\r\n]+/g, ' ')} - ${appName}`,
     content: `
       <p style="margin: 0 0 16px;">Dear ${escapeHtml(name)},</p>
       <p style="margin: 0 0 16px;">Study: <strong>${escapeHtml(title)}</strong><br/>Proposal No. <strong>${escapeHtml(proposalNo)}</strong></p>
@@ -356,7 +356,7 @@ const templates = {
         <li style="margin: 0 0 8px;">Please notify the Ethics Committee upon completion of the research study.</li>
         <li style="margin: 0 0 8px;">Please apply for extension if the research study is not complete by the date of study completion entered in the ethics approval form.</li>
       </ul>
-      <p style="margin: 0 0 16px;">Please log in to the platform to download the letter of approval from the Medical Research Ethics Committee.</p>
+      <p style="margin: 0 0 16px;">Please log in to the platform to view the letter of approval from the Medical Research Ethics Committee.</p>
       <p style="margin: 24px 0 0;">Sincerely,<br/><strong>Medical Research Ethics Committee</strong><br/>Medical City for Military and Security Services<br/>Muscat, Oman</p>
     `,
   }),
@@ -574,13 +574,18 @@ export const sendRevisionArchivedEmail = async (email, name, title, proposalNo, 
 };
 
 /* Notifies the submitter that ethics approval was granted. CCs the PI when distinct. */
+export const buildApprovalGrantedEmail = (name, title, proposalNo) => {
+  const { subject, content } = templates.approvalGranted(name || 'Researcher', title || 'Untitled study', proposalNo || 'Not available', BRANDING.appName);
+  return { subject, html: getEmailLayout(content) };
+};
+
 export const sendApprovalGrantedEmail = async (email, name, title, proposalNo, piEmailRaw) => {
   if (!email) return { sent: false, messageId: null };
-  const { subject, content } = templates.approvalGranted(name || 'Researcher', title || 'Untitled study', proposalNo || 'Not available', BRANDING.appName);
+  const message = buildApprovalGrantedEmail(name, title, proposalNo);
   const piEmail = typeof piEmailRaw === 'string' ? piEmailRaw.trim().toLowerCase() : '';
   const submitterLower = email.trim().toLowerCase();
   const cc = piEmail && EMAIL_RE.test(piEmail) && piEmail !== submitterLower ? piEmail : undefined;
-  return sendEmail({ to: email, cc, subject, html: getEmailLayout(content) });
+  return sendEmail({ to: email, cc, ...message });
 };
 
 /* Notifies the submitter that the proposal was not approved. CCs the PI when distinct. */

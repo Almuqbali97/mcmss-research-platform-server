@@ -1,9 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { uploadsDir } from '../config/uploads.js';
 import Submission from '../models/Submission.model.js';
 
-const uploadsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../uploads');
 
 const SUBMISSION_FILE_FIELDS = [
   'informationSheetFiles',
@@ -18,16 +17,21 @@ const SUBMISSION_FILE_FIELDS = [
 
 const collectFilenames = (submission) => {
   const filenames = [];
-  for (const field of SUBMISSION_FILE_FIELDS) {
-    const refs = submission.formData?.[field];
-    if (!Array.isArray(refs)) continue;
-    for (const ref of refs) {
-      if (ref?.filename) filenames.push(ref.filename);
+  for (const formData of [submission.formData, ...(submission.submissionVersions || []).map((version) => version.formData)]) {
+    for (const field of SUBMISSION_FILE_FIELDS) {
+      const refs = formData?.[field];
+      if (!Array.isArray(refs)) continue;
+      for (const ref of refs) {
+        if (ref?.filename) filenames.push(ref.filename);
+      }
+    }
+    for (const document of formData?.documentUploads || []) {
+      for (const file of [...(document.englishFiles || []), ...(document.arabicFiles || [])]) {
+        if (file?.filename) filenames.push(file.filename);
+      }
     }
   }
-  if (submission.approvalCertificate?.filename) {
-    filenames.push(submission.approvalCertificate.filename);
-  }
+  if (submission.approvalCertificate?.filename) filenames.push(submission.approvalCertificate.filename);
   return [...new Set(filenames)];
 };
 

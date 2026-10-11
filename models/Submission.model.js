@@ -87,9 +87,31 @@ const submissionSchema = new mongoose.Schema(
     // Snapshot of public review data immediately before the latest release.
     // Allows an admin to retrieve that review without losing previous rounds.
     reviewRelease: { type: mongoose.Schema.Types.Mixed, default: null },
-    // Append-only log of reviewer decisions. Each entry keeps the comment with the
-    // date, the decision it accompanied, and the revision round, so the reviewer,
-    // admin, and submitter can read the full history across revision cycles.
+    // Audit events survive retrieval and later review rounds. Draft/withdrawn events
+    // are filtered from researcher responses, but remain available to the committee.
+    reviewHistory: [{
+      event: { type: String, required: true },
+      decision: { type: String, default: null },
+      round: { type: Number, default: 0 },
+      version: { type: Number, default: null },
+      comment: { type: String, default: '' },
+      fieldComments: { type: mongoose.Schema.Types.Mixed, default: {} },
+      author: { type: String, default: null },
+      relatedEventId: { type: String, default: null },
+      deadline: { type: Date, default: null },
+      createdAt: { type: Date, default: Date.now },
+    }],
+    // Immutable snapshots of the answers and document references actually submitted.
+    submissionVersions: [{
+      version: { type: Number, required: true },
+      round: { type: Number, default: 0 },
+      researchTitle: String,
+      principalInvestigator: String,
+      formData: { type: mongoose.Schema.Types.Mixed, default: {} },
+      submittedAt: { type: Date, default: Date.now },
+    }],
+    // Public decision history kept for compatibility. Retrieved decisions leave
+    // this list; the complete committee audit remains in reviewHistory.
     reviewCommentHistory: [
       {
         comment: { type: String, default: '' },

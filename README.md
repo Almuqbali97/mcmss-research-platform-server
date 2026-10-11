@@ -88,7 +88,18 @@ All require authentication.
 | POST | /:id/approve-review | admin | Release issued decision and comments to researcher |
 | GET | /:id/export | All | Export (placeholder) |
 
-An admin can retrieve the currently released review until the researcher resubmits a revised proposal. Retrieval hides that decision and its comments in the platform and restores the reviewer draft. Email already delivered to the researcher cannot be recalled.
+An admin can retrieve the currently released review until the researcher resubmits a revised proposal. Retrieval hides that decision and its comments from the researcher and restores the reviewer draft. The committee audit history retains the original release and the retrieval event. Email already delivered to the researcher cannot be recalled.
+
+### Decision submission process
+
+1. The researcher submits the proposal, and the PI approves the declaration (an admin may record this approval).
+2. The assigned reviewer chooses a decision and saves comments. **Save review** retains a private draft; **Issue review** sends it to the administrator and locks reviewer editing.
+3. The administrator may edit comments, return the review for editing, or choose **Approve and share**. Only this last action releases the decision to the researcher and triggers the outcome email. The administrator cannot change the reviewer's selected decision.
+4. For revisions, the researcher edits and resubmits. The first revision deadline is 30 days; later rounds allow 7 days. The reviewer/admin process repeats.
+
+Every released decision is recorded even with no overall comment, together with section comments and its deadline. **Decision and revision history** shows the sequence and dated submission snapshots, including document references. The original release remains in the committee audit if retrieved. New submissions and resubmissions capture immutable versions; older answers or decisions that were never stored cannot be reconstructed. Existing saved comment histories remain visible.
+
+Approval emails identify the study title and proposal number in both the subject and body.
 
 ### Reviewers (`/api/reviewers`)
 | Method | Endpoint | Roles | Description |
@@ -98,6 +109,29 @@ An admin can retrieve the currently released review until the researcher resubmi
 | POST | / | admin | Create reviewer |
 | PUT | /:id | admin | Update reviewer |
 | DELETE | /:id | admin | Deactivate reviewer |
+
+## Document upload storage and tests
+
+Uploaded files are stored in `server/uploads` by default and served under `/api/uploads`.
+Document links open in a separate tab/window. PDFs and images are served inline;
+DOC/DOCX links open an escaped text preview generated locally using
+[word-extractor](https://github.com/morungos/node-word-extractor), without sending documents
+to an external viewer. Word text previews omit page layout, images, and tracked-change
+markup, support files up to 25 MB, and have a 15-second extraction limit. A file that
+cannot be previewed shows an error page instead of starting an automatic download.
+For a deployment with ephemeral application storage, set `UPLOADS_DIR` to an absolute
+directory on a persistent volume. Move existing uploaded files to that directory before
+switching it; the database stores references, not file contents. Restarting a deployment
+without persistent storage can lose uploaded files.
+
+Run `npm test` for regression tests. For the complete browser upload test, install
+Playwright (`npm install --no-save playwright` and `npx playwright install chromium`),
+make `mongod` available on PATH, and run `npm run test:uploads`. Alternatively, set
+`MONGOD_PATH` to its executable, `PLAYWRIGHT_MODULE_PATH` to an existing Playwright
+`index.mjs`, and optionally `PLAYWRIGHT_CHANNEL=chrome` to use installed Chrome.
+The test starts isolated services on ports 27029, 3002, and 5174, disables email,
+and removes its temporary database and files afterward. It requires the sibling
+client checkout and its installed dependencies.
 
 ## Roles
 
