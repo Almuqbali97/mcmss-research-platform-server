@@ -69,7 +69,7 @@ try {
   // Restore valid non-file answers to focus the browser test on the complete upload lifecycle.
   const form = {
     researchTitle: 'Document upload E2E', consentAcknowledged: true,
-    principalInvestigator: { fullName: 'Upload Tester', jobTitle: 'Researcher', hospital: 'Military Hospital', department: 'Research', qualifications: 'MD', telephone: '+96891234567', email, isFromMCMSS: 'Yes' },
+    principalInvestigator: { fullName: 'Upload Tester', jobTitle: 'Researcher', hospital: 'Military Hospital', department: 'Research', qualifications: 'MD', telephone: '+96891234567', email: 'different-pi@example.com', isFromMCMSS: 'Yes' },
     mastersOrPhd: 'No', researchType: ['Medical records'], studyInvolves: ['None of the above'], proposedStartDate: '2027-01-01', duration: '6 months', multiCenterResearch: 'No', fundingSource: 'Self-Funding',
     dataCapturingMethods: 'Records', dataStorageMode: 'Secure storage', dataAccess: 'PI', confidentialityMeasures: 'Anonymous', previousEthicsApproval: 'No', collectingPersonalInfo: 'No', collectingFromOtherSource: 'No', involvesDeception: 'No', intendToPublish: 'Yes', bloodTissueSamples: 'No',
     introduction: 'Introduction', rationaleForStudy: 'Rationale', studyDesignSettingDuration: 'Design', objectives: 'Objectives', studyPopulationAndSampling: 'Sampling', sampleSize: 'Ten', variables: 'Variables', statisticalAnalysis: 'Analysis', expectedOutcomes: 'Outcomes', references: 'References',

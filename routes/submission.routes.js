@@ -13,6 +13,7 @@ import {
   saveReviewSchema,
   extendRevisionDeadlineSchema,
   fieldCommentsSchema,
+  researcherEditAccessSchema,
 } from '../validators/submission.validator.js';
 
 const router = Router();
@@ -47,6 +48,7 @@ router.get('/assigned', submissionController.getAssignedSubmissions);
 router.get('/recently-deleted', authorize('admin'), submissionController.getRecentlyDeletedSubmissions);
 router.delete('/recently-deleted/:id', authorize('admin'), submissionController.permanentlyDeleteSubmission);
 router.get('/:id', submissionController.getSubmission);
+router.patch('/:id/edit-access', authorize('admin'), validate(researcherEditAccessSchema), submissionController.setResearcherEditAccess);
 router.post('/', authorize('researcher', 'admin'), maybeMultipart, validate(createSubmissionSchema), submissionController.createSubmission);
 router.put('/:id', authorize('researcher', 'admin'), maybeMultipart, validate(updateSubmissionSchema), submissionController.updateSubmission);
 router.delete('/:id', authorize('admin'), submissionController.deleteSubmission);

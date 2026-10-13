@@ -21,6 +21,7 @@ export const processRevisionDeadlines = async () => {
   try {
     const submissions = await Submission.find({
       deletedAt: null,
+      researcherEditEnabled: { $ne: true },
       status: { $in: REVISION_STATUSES },
       'revision.deadline': { $ne: null },
     }).populate('submittedBy', 'firstName lastName email');

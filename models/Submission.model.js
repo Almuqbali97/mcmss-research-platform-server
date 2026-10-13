@@ -44,6 +44,8 @@ const submissionSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // null follows the normal workflow; admins can explicitly open or close edits.
+    researcherEditEnabled: { type: Boolean, default: null },
     // Admin deletions are retained for 30 days before the cleanup service removes them.
     // Normal submission queries explicitly exclude records with deletedAt set.
     deletedAt: {

@@ -135,6 +135,21 @@ client checkout and its installed dependencies.
 
 ## Roles
 
+Research ethics submissions display **Awaiting PI confirmation** until the PI approves.
+On submission, a PI email matching the authenticated submitter's account email
+(ignoring case and surrounding spaces) is confirmed automatically; a separate PI
+confirmation email is not sent. Supervisor approval remains a separate record.
+
+Admins can use **Enable edit** / **Close edits** in the ethics submissions table
+(`PATCH /api/submissions/:id/edit-access`, body `{ "enabled": true }` or `false`).
+This grants correction access without changing the status, reviewer, or review draft.
+While enabled, researcher responses omit overall, section, and historical review
+comments, including exports. Researchers save changes rather than resubmit; closing
+edits blocks subsequent saves even from an already-open form. A newly released review
+restores the normal workflow permissions. Reviews cannot be released until edits are
+closed. Revision reminders and automatic archiving are skipped while correction
+access is enabled; existing deadlines resume when it closes.
+
 - **researcher** - Create, edit, submit applications
 - **reviewer** - Review assigned submissions
 - **admin** - Manage reviewers, assign reviews, full access

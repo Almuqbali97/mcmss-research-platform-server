@@ -65,6 +65,12 @@ export const forViewer = (submission, user) => {
     }
     data.reviewCommentHistory = (data.reviewCommentHistory || []).map(({ author, ...entry }) => entry);
     data.reviewHistory = researcherHistory(data.reviewHistory);
+    if (data.researcherEditEnabled === true) {
+      data.reviewComments = '';
+      data.fieldComments = {};
+      data.reviewCommentHistory = [];
+      data.reviewHistory = data.reviewHistory.filter((entry) => entry.event !== 'decision_released');
+    }
   }
   return data;
 };
@@ -121,9 +127,35 @@ const canAccessSubmission = async (submission, user) => {
   return false;
 };
 
-const canResearcherEdit = (submission) =>
-  RESEARCHER_EDITABLE_STATUSES.includes(submission.status) ||
-  (submission.status === 'under_review' && !submission.adminViewedAt);
+export const canResearcherEdit = (submission) =>
+  submission.researcherEditEnabled ?? (
+    RESEARCHER_EDITABLE_STATUSES.includes(submission.status) ||
+    (submission.status === 'under_review' && !submission.adminViewedAt)
+  );
+
+export const autoConfirmSubmitterPi = (submission) => {
+  const email = submission.formData?.principalInvestigator?.email?.trim();
+  const submitterEmail = submission.submittedBy?.email?.trim();
+  if (!email || !EMAIL_RE.test(email) || !submitterEmail || email.toLowerCase() !== submitterEmail.toLowerCase()) return;
+  submission.piDeclarationApproval = { email, token: null, status: 'approved', decidedAt: new Date() };
+};
+
+export const setResearcherEditAccess = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'admin') return errorResponse(res, 'Access denied.', 403);
+    const submission = await Submission.findOne({ _id: req.params.id, ...ACTIVE_SUBMISSION })
+      .populate('submittedBy', 'firstName lastName email')
+      .populate('assignedReviewerId', 'name email specialization');
+    if (!submission) return errorResponse(res, 'Submission not found.', 404);
+    if (submission.status === 'draft') return errorResponse(res, 'Drafts are already editable.', 400);
+    submission.researcherEditEnabled = req.body.enabled;
+    recordReviewEvent(submission, req.body.enabled ? 'edits_enabled' : 'edits_closed', { author: String(req.user._id) });
+    await submission.save();
+    return successResponse(res, submission, req.body.enabled ? 'Researcher edits enabled.' : 'Researcher edits closed.');
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const getSubmissions = async (req, res, next) => {
   try {
@@ -182,7 +214,7 @@ export const getAssignedSubmissions = async (req, res, next) => {
       .populate('assignedReviewerId', 'name email specialization')
       .sort({ createdAt: -1 });
 
-    return successResponse(res, submissions);
+    return successResponse(res, submissions.map((submission) => forViewer(submission, user)));
   } catch (error) {
     next(error);
   }
@@ -260,10 +292,10 @@ export const updateSubmission = async (req, res, next) => {
         return errorResponse(res, 'Access denied.', 403);
       }
       if (!canResearcherEdit(submission)) {
-        return errorResponse(res, 'This submission can no longer be edited because an admin has viewed it.', 400);
+        return errorResponse(res, 'Editing is closed for this submission. Contact an admin to enable edits.', 400);
       }
       if (
-        REVISION_STATUSES.includes(submission.status) &&
+        submission.researcherEditEnabled !== true && REVISION_STATUSES.includes(submission.status) &&
         submission.revision?.deadline &&
         new Date(submission.revision.deadline) <= new Date()
       ) {
@@ -274,11 +306,25 @@ export const updateSubmission = async (req, res, next) => {
     }
 
     const updates = { ...req.body };
-    if (user.role === 'researcher' && submission.status === 'under_review') {
+    if (user.role === 'researcher') {
+      // Recheck the permission at write time if an admin closes edits during a save.
+      submission.$where = {
+        researcherEditEnabled: submission.researcherEditEnabled ?? null,
+        adminViewedAt: submission.adminViewedAt ?? null,
+        status: submission.status,
+        deletedAt: null,
+      };
+    }
+    if (user.role === 'researcher' && submission.status !== 'draft') {
       delete updates.status;
     }
     Object.assign(submission, updates);
-    await submission.save();
+    try {
+      await submission.save();
+    } catch (error) {
+      if (error.name === 'DocumentNotFoundError') return errorResponse(res, 'Edit access changed. Reload the submission before saving.', 409);
+      throw error;
+    }
 
     const updated = await Submission.findOne({ _id: id, ...ACTIVE_SUBMISSION })
       .populate('submittedBy', 'firstName lastName email')
@@ -359,6 +405,11 @@ export const submitForReview = async (req, res, next) => {
       return errorResponse(res, 'Access denied.', 403);
     }
 
+    if (submission.researcherEditEnabled != null) {
+      return errorResponse(res, submission.researcherEditEnabled
+        ? 'Save your changes while admin-enabled editing is open.'
+        : 'Editing is closed for this submission.', 400);
+    }
     if (!RESEARCHER_SUBMITTABLE_STATUSES.includes(submission.status)) {
       return errorResponse(res, 'Only draft or revision-required submissions can be submitted for review.', 400);
     }
@@ -373,6 +424,7 @@ export const submitForReview = async (req, res, next) => {
     const isRevisionSubmission = REVISION_STATUSES.includes(submission.status);
     submission.status = isRevisionSubmission ? 'under_review_with_revisions' : 'under_review';
     submission.submittedDate = new Date();
+    autoConfirmSubmitterPi(submission);
     recordSubmissionVersion(submission, isRevisionSubmission);
     submission.adminViewedAt = null;
     submission.reviewStatus = 'pending';
@@ -709,6 +761,10 @@ export const approveReview = async (req, res, next) => {
     if (!UNDER_REVIEW_STATUSES.includes(submission.status) || submission.reviewDraft?.state !== 'issued') {
       return errorResponse(res, 'Only an issued review can be approved.', 400);
     }
+    if (submission.researcherEditEnabled === true) {
+      return errorResponse(res, 'Close researcher edits before releasing a review.', 400);
+    }
+    submission.researcherEditEnabled = null;
     const { status, comments, fieldComments } = submission.reviewDraft;
     ensureReviewHistory(submission);
 

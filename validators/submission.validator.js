@@ -1,5 +1,9 @@
 import Joi from 'joi';
 
+export const researcherEditAccessSchema = Joi.object({
+  enabled: Joi.boolean().strict().required(),
+});
+
 export const createSubmissionSchema = Joi.object({
   researchTitle: Joi.string().trim().required(),
   principalInvestigator: Joi.string().trim().required(),
